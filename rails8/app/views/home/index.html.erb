@@ -1,4 +1,3 @@
-<!-- app/views/shared/_hover_image.html.erb -->
 <div class="min-h-screen w-full bg-black flex items-center justify-center">
   <div class="w-64 group translate-y-1/2 -mt-32">
     <!-- Image container -->
@@ -18,5 +17,8 @@
     <%= image_tag "runtime-dark.png",
         class: "w-full transition-all duration-500 ease-in-out opacity-0 group-hover:opacity-100",
         alt: "Tagline" %>
+  </div>
+  <div class="absolute bottom-0 left-0 w-full text-center text-white mb-24">
+      <p class="text-xl font-serif">Congrats, you've deployed a rails 8 application with runtime!</p>
   </div>
 </div>

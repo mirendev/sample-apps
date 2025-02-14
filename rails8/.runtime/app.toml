@@ -1,0 +1,17 @@
+name = "rails8"
+
+[[env]]
+name = "RAILS_ENV"
+value = "production"
+
+[[env]]
+name = "WEB_CONCURRENCY"
+value = "auto"
+
+[[env]]
+name = "RAILS_MAX_THREADS"
+value = "3"
+
+[[env]]
+name = "SECRET_KEY_BASE"
+generator = "random-secret"
