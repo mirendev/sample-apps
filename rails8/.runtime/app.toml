@@ -1,5 +1,10 @@
 name = "rails8"
 
+[build]
+onbuild = [
+  "bundle exec rake assets:precompile",
+]
+
 [[env]]
 name = "RAILS_ENV"
 value = "production"
@@ -15,3 +20,6 @@ value = "3"
 [[env]]
 name = "SECRET_KEY_BASE"
 generator = "random-secret"
+
+[services]
+web = "rails s -b 0.0.0.0 -p $PORT"
