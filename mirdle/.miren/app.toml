@@ -1,0 +1,5 @@
+name = "mirdle"
+
+[services.web.concurrency]
+mode = "fixed"
+num_instances = 1
