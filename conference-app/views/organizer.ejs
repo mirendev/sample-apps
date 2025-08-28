@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Organizer Dashboard - Conference App</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/fun.css">
+    <script src="/fun.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Organizer Dashboard</h1>
+            <div>
+                <a href="/schedule" class="button">View Schedule</a>
+                <a href="/" class="button">Back to Home</a>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Conference Settings</h2>
+            <div class="form-group">
+                <label for="conferenceName">Conference Name:</label>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="conferenceName" value="<%= conferenceName %>" placeholder="Enter conference name" style="flex: 1;">
+                    <button id="saveNameBtn" class="button primary">Save Name</button>
+                    <button id="randomNameBtn" class="button">🎲 Random Name</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Add New Talk</h2>
+            <form id="addTalkForm" class="talk-form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="title">Title:</label>
+                        <input type="text" id="title" name="title" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="speaker">Speaker:</label>
+                        <input type="text" id="speaker" name="speaker" required>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="description">Description:</label>
+                    <textarea id="description" name="description" rows="3"></textarea>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="start_time">Start Time:</label>
+                        <input type="time" id="start_time" name="start_time" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="end_time">End Time:</label>
+                        <input type="time" id="end_time" name="end_time" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="room">Room:</label>
+                        <input type="text" id="room" name="room" required>
+                    </div>
+                </div>
+                
+                <button type="submit" class="button primary">Add Talk</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h2>Current Schedule</h2>
+            <div class="talks-list">
+                <% if (talks && talks.length > 0) { %>
+                    <% talks.forEach(talk => { %>
+                        <div class="talk-item" data-id="<%= talk.id %>">
+                            <div class="talk-header">
+                                <h3><%= talk.title %></h3>
+                                <div class="talk-actions">
+                                    <button class="button small edit-btn" data-id="<%= talk.id %>">Edit</button>
+                                    <button class="button small danger delete-btn" data-id="<%= talk.id %>">Delete</button>
+                                </div>
+                            </div>
+                            <p class="speaker">Speaker: <%= talk.speaker %></p>
+                            <p class="description"><%= talk.description %></p>
+                            <p class="schedule-info">
+                                <span class="time">⏰ <%= talk.start_time %> - <%= talk.end_time %></span>
+                                <span class="room">📍 <%= talk.room %></span>
+                            </p>
+                        </div>
+                    <% }) %>
+                <% } else { %>
+                    <p>No talks scheduled yet.</p>
+                <% } %>
+            </div>
+        </div>
+    </div>
+
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Edit Talk</h2>
+            <form id="editTalkForm" class="talk-form">
+                <input type="hidden" id="edit-id">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="edit-title">Title:</label>
+                        <input type="text" id="edit-title" name="title" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-speaker">Speaker:</label>
+                        <input type="text" id="edit-speaker" name="speaker" required>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit-description">Description:</label>
+                    <textarea id="edit-description" name="description" rows="3"></textarea>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="edit-start_time">Start Time:</label>
+                        <input type="time" id="edit-start_time" name="start_time" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-end_time">End Time:</label>
+                        <input type="time" id="edit-end_time" name="end_time" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-room">Room:</label>
+                        <input type="text" id="edit-room" name="room" required>
+                    </div>
+                </div>
+                
+                <button type="submit" class="button primary">Update Talk</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="/organizer.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Add reactions to talks
+            setTimeout(() => {
+                funUtils.addReactionButtons();
+            }, 500);
+            
+            // Conference name management
+            const conferenceNameInput = document.getElementById('conferenceName');
+            const saveNameBtn = document.getElementById('saveNameBtn');
+            const randomNameBtn = document.getElementById('randomNameBtn');
+            
+            saveNameBtn.addEventListener('click', async () => {
+                const name = conferenceNameInput.value.trim();
+                if (!name) {
+                    alert('Please enter a conference name');
+                    return;
+                }
+                
+                try {
+                    const response = await fetch('/api/conference-name', {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ name })
+                    });
+                    
+                    if (response.ok) {
+                        saveNameBtn.textContent = '✅ Saved!';
+                        setTimeout(() => {
+                            saveNameBtn.textContent = 'Save Name';
+                        }, 2000);
+                    } else {
+                        alert('Failed to save conference name');
+                    }
+                } catch (error) {
+                    alert('Error: ' + error.message);
+                }
+            });
+            
+            randomNameBtn.addEventListener('click', () => {
+                const randomName = funUtils.generateConferenceName();
+                conferenceNameInput.value = randomName;
+                // Wiggle the input for fun
+                conferenceNameInput.style.animation = 'wiggle 0.5s ease';
+                setTimeout(() => {
+                    conferenceNameInput.style.animation = '';
+                }, 500);
+            });
+            
+            // Fun message when adding a talk
+            const addForm = document.getElementById('addTalkForm');
+            const originalSubmit = addForm.onsubmit;
+            addForm.addEventListener('submit', () => {
+                const messages = [
+                    "🚀 Launching your amazing talk into orbit!",
+                    "✨ Sprinkling magic dust on your session...",
+                    "🎯 Adding your talk to the awesome schedule!",
+                    "🌟 Making your talk shine bright!"
+                ];
+                const msg = messages[Math.floor(Math.random() * messages.length)];
+                const submitBtn = addForm.querySelector('button[type="submit"]');
+                const originalText = submitBtn.textContent;
+                submitBtn.textContent = msg;
+                setTimeout(() => {
+                    submitBtn.textContent = originalText;
+                }, 2000);
+            });
+            
+        });
+    </script>
+</body>
+</html>

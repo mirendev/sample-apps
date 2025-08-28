@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conference Schedule - Conference App</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><%= conferenceName %> - Schedule</h1>
+            <a href="/" class="button">Back to Home</a>
+        </div>
+
+        <div class="card">
+            <h2>📅 Full Schedule with Attendees</h2>
+            
+            <% if (talks && talks.length > 0) { %>
+                <div class="schedule-timeline">
+                    <% talks.forEach(talk => { %>
+                        <div class="schedule-item">
+                            <div class="schedule-time">
+                                <div class="time-block">
+                                    <%= talk.start_time %> - <%= talk.end_time %>
+                                </div>
+                            </div>
+                            
+                            <div class="schedule-content">
+                                <div class="schedule-header">
+                                    <h3><%= talk.title %></h3>
+                                    <span class="room-badge">📍 <%= talk.room %></span>
+                                </div>
+                                
+                                <p class="speaker">👤 <%= talk.speaker %></p>
+                                
+                                <% if (talk.description) { %>
+                                    <p class="description"><%= talk.description %></p>
+                                <% } %>
+                                
+                                <div class="attendee-section">
+                                    <div class="attendee-header">
+                                        <span class="attendee-count">
+                                            👥 <%= talk.attendee_count || 0 %> Registered
+                                        </span>
+                                    </div>
+                                    
+                                    <% if (talk.attendee_names) { %>
+                                        <div class="attendee-list">
+                                            <% talk.attendee_names.split(',').forEach(name => { %>
+                                                <span class="attendee-chip"><%= name.trim() %></span>
+                                            <% }) %>
+                                        </div>
+                                    <% } else { %>
+                                        <p class="no-attendees">No attendees registered yet</p>
+                                    <% } %>
+                                </div>
+                            </div>
+                        </div>
+                    <% }) %>
+                </div>
+            <% } else { %>
+                <p>No talks scheduled yet.</p>
+            <% } %>
+        </div>
+
+        <div class="card stats-card">
+            <h2>📊 Conference Statistics</h2>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="stat-value"><%= talks ? talks.length : 0 %></div>
+                    <div class="stat-label">Total Talks</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">
+                        <%= talks ? talks.reduce((sum, talk) => sum + (talk.attendee_count || 0), 0) : 0 %>
+                    </div>
+                    <div class="stat-label">Total Registrations</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">
+                        <%= talks && talks.length > 0 ? 
+                            Math.round(talks.reduce((sum, talk) => sum + (talk.attendee_count || 0), 0) / talks.length * 10) / 10 
+                            : 0 %>
+                    </div>
+                    <div class="stat-label">Avg. Attendees per Talk</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .schedule-timeline {
+            position: relative;
+            padding: 20px 0;
+        }
+
+        .schedule-item {
+            display: flex;
+            gap: 30px;
+            margin-bottom: 40px;
+            position: relative;
+        }
+
+        .schedule-time {
+            flex-shrink: 0;
+            width: 120px;
+            text-align: right;
+        }
+
+        .time-block {
+            background: #667eea;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .schedule-content {
+            flex-grow: 1;
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .schedule-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .room-badge {
+            background: #e6fffa;
+            color: #2c5282;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 14px;
+        }
+
+        .attendee-section {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        .attendee-header {
+            margin-bottom: 10px;
+        }
+
+        .attendee-count {
+            background: #48bb78;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .attendee-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .attendee-chip {
+            background: white;
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 14px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .no-attendees {
+            color: #999;
+            font-style: italic;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+
+        .stats-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .stats-card h2 {
+            color: white;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 30px;
+            text-align: center;
+        }
+
+        .stat-item {
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+
+        .stat-value {
+            font-size: 36px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        @media (max-width: 768px) {
+            .schedule-item {
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            .schedule-time {
+                width: 100%;
+                text-align: left;
+            }
+
+            .schedule-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+        }
+    </style>
+</body>
+</html>

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conference App</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/fun.css">
+    <script src="/fun.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1 id="conferenceTitle"><%= conferenceName %></h1>
+        <div class="card">
+            <h2>Welcome to <%= conferenceName %>!</h2>
+            <p>Select your role to continue:</p>
+            <div class="button-group">
+                <a href="/organizer" class="button primary">Organizer Dashboard</a>
+                <a href="/attendee" class="button secondary">Attendee Registration</a>
+                <a href="/schedule" class="button">View Full Schedule</a>
+            </div>
+        </div>
+        
+        <div class="card" style="text-align: center;">
+            <h3>🎮 Secret: Try the Konami Code!</h3>
+            <p style="color: #999; font-size: 14px;">↑ ↑ ↓ ↓ ← → ← → B A</p>
+        </div>
+    </div>
+    
+</body>
+</html>

@@ -1,6 +1,6 @@
 # Sample Apps
 
-This contains sample apps to use with Runtime.
+This contains sample apps to use with Miren.
 
 * [Bun](bun/)
 * [Go](go/)

@@ -1,0 +1,329 @@
+/* Fun animations and effects */
+
+@keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-20px); }
+}
+
+@keyframes wiggle {
+    0%, 100% { transform: rotate(0deg); }
+    25% { transform: rotate(3deg); }
+    75% { transform: rotate(-3deg); }
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); }
+}
+
+@keyframes slideInBounce {
+    0% {
+        transform: translateX(-100%) scale(0.5);
+        opacity: 0;
+    }
+    60% {
+        transform: translateX(20px) scale(1.1);
+        opacity: 1;
+    }
+    100% {
+        transform: translateX(0) scale(1);
+    }
+}
+
+@keyframes rainbow {
+    0% { filter: hue-rotate(0deg); }
+    100% { filter: hue-rotate(360deg); }
+}
+
+@keyframes confettiFall {
+    0% {
+        transform: translateY(-100vh) rotate(0deg);
+        opacity: 1;
+    }
+    100% {
+        transform: translateY(100vh) rotate(720deg);
+        opacity: 0;
+    }
+}
+
+@keyframes floatUp {
+    0% {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+    100% {
+        transform: translateY(-100px) scale(1.5);
+        opacity: 0;
+    }
+}
+
+
+/* Confetti styles */
+.confetti {
+    position: fixed;
+    width: 10px;
+    height: 10px;
+    z-index: 10000;
+    animation: confettiFall linear infinite;
+}
+
+/* Card entrance animations */
+.card {
+    animation: slideInBounce 0.6s ease-out;
+}
+
+.talk-card, .talk-item {
+    transition: all 0.3s ease;
+    animation: fadeIn 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.talk-card:hover, .talk-item:hover {
+    animation: wiggle 0.5s ease-in-out;
+    box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+}
+
+/* Button hover effects */
+.button {
+    transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    position: relative;
+    overflow: hidden;
+}
+
+.button::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+}
+
+.button:hover::before {
+    width: 300px;
+    height: 300px;
+}
+
+/* Party mode */
+.party-mode {
+    animation: rainbow 2s linear infinite;
+}
+
+.party-mode * {
+    animation: wiggle 0.5s ease-in-out infinite;
+}
+
+.party-message {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 48px;
+    font-weight: bold;
+    background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000);
+    background-size: 400%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: rainbow 1s ease-in-out infinite;
+    z-index: 10001;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+}
+
+/* Reaction bar */
+.reaction-bar {
+    display: flex;
+    gap: 5px;
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.reaction-btn {
+    background: transparent;
+    border: 1px solid #e2e8f0;
+    border-radius: 50%;
+    width: 35px;
+    height: 35px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 18px;
+}
+
+.reaction-btn:hover {
+    transform: scale(1.2);
+    background: #f0f4ff;
+    border-color: #667eea;
+}
+
+.reaction-bounce {
+    animation: bounce 0.5s ease;
+}
+
+.reaction-float {
+    position: absolute;
+    font-size: 24px;
+    animation: floatUp 1s ease-out;
+    pointer-events: none;
+    z-index: 1000;
+}
+
+/* Fun fact popup - kept for welcome messages */
+.fun-fact {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    padding: 20px;
+    border-radius: 10px;
+    max-width: 300px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    animation: slideInBounce 0.6s ease-out;
+    z-index: 1000;
+}
+
+/* Loading spinner with message */
+.loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+}
+
+.loading-spinner {
+    width: 50px;
+    height: 50px;
+    border: 5px solid #f3f3f3;
+    border-top: 5px solid #667eea;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.loading-message {
+    margin-top: 20px;
+    font-size: 18px;
+    color: #667eea;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+/* Sparkle cursor trail */
+.sparkle {
+    position: fixed;
+    width: 4px;
+    height: 4px;
+    background: #ffeb3b;
+    border-radius: 50%;
+    pointer-events: none;
+    animation: sparkle 1s ease-out;
+    z-index: 10000;
+}
+
+@keyframes sparkle {
+    0% {
+        transform: scale(0) rotate(0deg);
+        opacity: 1;
+    }
+    100% {
+        transform: scale(2) rotate(180deg);
+        opacity: 0;
+    }
+}
+
+/* Title animations */
+h2 {
+    animation: fadeIn 0.8s ease-out;
+}
+
+/* Badge animations */
+.attendee-count, .room-badge {
+    transition: all 0.3s ease;
+}
+
+.attendee-count:hover, .room-badge:hover {
+    animation: bounce 0.5s ease;
+    transform: scale(1.1);
+}
+
+
+/* Success celebration */
+.success-message {
+    animation: bounce 0.6s ease;
+    color: #48bb78;
+    font-weight: bold;
+}
+
+/* Error shake */
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+    20%, 40%, 60%, 80% { transform: translateX(5px); }
+}
+
+.error {
+    animation: shake 0.5s ease;
+    border-color: #f56565 !important;
+}
+
+/* Tooltip animations */
+.tooltip {
+    position: relative;
+}
+
+.tooltip::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%) scale(0);
+    background: #333;
+    color: white;
+    padding: 8px 12px;
+    border-radius: 5px;
+    white-space: nowrap;
+    transition: transform 0.3s ease;
+    pointer-events: none;
+}
+
+.tooltip:hover::after {
+    transform: translateX(-50%) scale(1) translateY(-10px);
+}
+
+/* Responsive animations */
+@media (max-width: 768px) {
+    .party-message {
+        font-size: 32px;
+    }
+    
+    @keyframes slideInBounce {
+        0% {
+            transform: translateY(-50px) scale(0.9);
+            opacity: 0;
+        }
+        100% {
+            transform: translateY(0) scale(1);
+            opacity: 1;
+        }
+    }
+}

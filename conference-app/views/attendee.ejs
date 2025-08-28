@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendee Registration - Conference App</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/fun.css">
+    <script src="/fun.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><%= conferenceName %> - Registration</h1>
+            <div>
+                <a href="/schedule" class="button">View Schedule</a>
+                <a href="/" class="button">Back to Home</a>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Register for the Conference</h2>
+            <form id="registerForm" class="attendee-form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="name">Name:</label>
+                        <input type="text" id="name" name="name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="email">Email:</label>
+                        <input type="email" id="email" name="email" required>
+                    </div>
+                </div>
+                <button type="submit" class="button primary">Register</button>
+            </form>
+        </div>
+
+        <div id="talksSection" class="card" style="display: none;">
+            <h2>Select Talks to Attend</h2>
+            <p class="info">Welcome <span id="attendeeName"></span>! Select the talks you'd like to attend:</p>
+            
+            <div class="talks-grid">
+                <% if (talks && talks.length > 0) { %>
+                    <% talks.forEach(talk => { %>
+                        <div class="talk-card" data-talk-id="<%= talk.id %>">
+                            <h3><%= talk.title %></h3>
+                            <p class="speaker">👤 <%= talk.speaker %></p>
+                            <p class="description"><%= talk.description %></p>
+                            <p class="schedule-info">
+                                <span class="time">⏰ <%= talk.start_time %> - <%= talk.end_time %></span>
+                                <span class="room">📍 <%= talk.room %></span>
+                            </p>
+                            <button class="button register-btn" data-talk-id="<%= talk.id %>">
+                                Register for Talk
+                            </button>
+                        </div>
+                    <% }) %>
+                <% } else { %>
+                    <p>No talks available yet. Please check back later!</p>
+                <% } %>
+            </div>
+        </div>
+
+        <div id="myTalksSection" class="card" style="display: none;">
+            <h2>My Registered Talks</h2>
+            <div id="registeredTalksList" class="registered-talks">
+                <p>You haven't registered for any talks yet.</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="/attendee.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Add reactions to talks
+            setTimeout(() => {
+                funUtils.addReactionButtons();
+            }, 500);
+        });
+    </script>
+</body>
+</html>
