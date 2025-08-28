@@ -1,0 +1,7 @@
+node_modules/
+*.db
+.git/
+coverage/
+dist/
+build/
+*.ejs

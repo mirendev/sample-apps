@@ -38,8 +38,9 @@ The app will be available at `http://localhost:3000`
 ## Database
 
 The SQLite database is stored at `/miren/data/local/conference.db` and includes:
+
 - `talks` - Conference sessions
-- `attendees` - Registered users  
+- `attendees` - Registered users
 - `registrations` - Talk attendance records
 
 The database is automatically initialized with sample data on first run.

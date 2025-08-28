@@ -1,0 +1,5 @@
+name = "conference-app"
+
+[services.web.concurrency]
+mode = "fixed"
+num_instances = 3

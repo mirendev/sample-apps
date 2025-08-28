@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendee Management - <%= conferenceName %></title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/fun.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Attendee Management</h1>
+            <div>
+                <a href="/organizer" class="button">Organizer</a>
+                <a href="/attendee" class="button">Register</a>
+                <a href="/schedule" class="button">Schedule</a>
+                <a href="/" class="button">Back to Home</a>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>👥 Manage Attendees</h2>
+            <p class="subtitle">View and manage conference attendees</p>
+            <% if (attendees.length > 0) { %>
+                <div class="attendees-stats">
+                    <div class="stat-card">
+                        <div class="stat-number"><%= attendees.length %></div>
+                        <div class="stat-label">Total Attendees</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number"><%= attendees.reduce((sum, a) => sum + a.registered_talks_count, 0) %></div>
+                        <div class="stat-label">Total Registrations</div>
+                    </div>
+                </div>
+
+                <div class="attendees-grid">
+                    <% attendees.forEach(attendee => { %>
+                        <div class="attendee-card" data-id="<%= attendee.id %>">
+                            <div class="attendee-header">
+                                <h3><%= attendee.name %></h3>
+                                <button class="delete-attendee-btn" data-id="<%= attendee.id %>" title="Delete attendee">
+                                    🗑️
+                                </button>
+                            </div>
+                            <div class="attendee-details">
+                                <p class="email">📧 <%= attendee.email %></p>
+                                <p class="registered-talks">
+                                    🎟️ Registered for <%= attendee.registered_talks_count %> talk<%= attendee.registered_talks_count !== 1 ? 's' : '' %>
+                                </p>
+                                <p class="created-at">
+                                    📅 Joined: <%= new Date(attendee.created_at).toLocaleDateString() %>
+                                </p>
+                            </div>
+                        </div>
+                    <% }) %>
+                </div>
+            <% } else { %>
+                <div class="empty-state">
+                    <h3>No Attendees Yet</h3>
+                    <p>Attendees will appear here once they register for the conference.</p>
+                    <a href="/attendee" class="button">Go to Registration Page</a>
+                </div>
+            <% } %>
+        </div>
+    </div>
+
+    <script src="/fun.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.delete-attendee-btn').forEach(btn => {
+                btn.addEventListener('click', async function() {
+                    const attendeeId = this.dataset.id;
+                    const card = document.querySelector(`.attendee-card[data-id="${attendeeId}"]`);
+                    const attendeeName = card.querySelector('h3').textContent;
+                    
+                    if (!confirm(`Are you sure you want to delete ${attendeeName}? This will also remove all their talk registrations.`)) {
+                        return;
+                    }
+
+                    try {
+                        const response = await fetch(`/api/attendees/${attendeeId}`, {
+                            method: 'DELETE'
+                        });
+
+                        if (response.ok) {
+                            card.style.animation = 'fadeOutScale 0.3s ease';
+                            setTimeout(() => {
+                                location.reload();
+                            }, 300);
+                        } else {
+                            alert('Failed to delete attendee');
+                        }
+                    } catch (error) {
+                        alert('Error: ' + error.message);
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>

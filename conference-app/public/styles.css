@@ -1,288 +1,441 @@
 * {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    min-height: 100vh;
-    padding: 20px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+  padding: 20px;
 }
 
 .container {
-    max-width: 1200px;
-    margin: 0 auto;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
 .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 30px;
-    color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+  color: white;
 }
 
 .header > div {
-    display: flex;
-    gap: 10px;
+  display: flex;
+  gap: 10px;
 }
 
 .card {
-    background: white;
-    border-radius: 10px;
-    padding: 30px;
-    margin-bottom: 30px;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+  background: white;
+  border-radius: 10px;
+  padding: 30px;
+  margin-bottom: 30px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
 }
 
 h1 {
-    color: white;
-    font-size: 2.5em;
-    text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+  color: white;
+  font-size: 2.5em;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 h2 {
-    color: #333;
-    margin-bottom: 20px;
+  color: #333;
+  margin-bottom: 20px;
 }
 
 h3 {
-    color: #444;
-    margin-bottom: 10px;
+  color: #444;
+  margin-bottom: 10px;
 }
 
 .button {
-    display: inline-block;
-    padding: 12px 24px;
-    background: #667eea;
-    color: white;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-    text-decoration: none;
-    font-size: 16px;
-    transition: all 0.3s ease;
+  display: inline-block;
+  padding: 12px 24px;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  text-decoration: none;
+  font-size: 16px;
+  transition: all 0.3s ease;
 }
 
 .button:hover {
-    background: #5a67d8;
-    transform: translateY(-2px);
+  background: #5a67d8;
+  transform: translateY(-2px);
 }
 
 .button.primary {
-    background: #667eea;
+  background: #667eea;
 }
 
 .button.secondary {
-    background: #48bb78;
+  background: #48bb78;
 }
 
 .button.secondary:hover {
-    background: #38a169;
+  background: #38a169;
 }
 
 .button.danger {
-    background: #f56565;
+  background: #f56565;
 }
 
 .button.danger:hover {
-    background: #e53e3e;
+  background: #e53e3e;
 }
 
 .button.small {
-    padding: 8px 16px;
-    font-size: 14px;
+  padding: 8px 16px;
+  font-size: 14px;
 }
 
 .button-group {
-    display: flex;
-    gap: 20px;
-    margin-top: 20px;
+  display: flex;
+  gap: 20px;
+  margin-top: 20px;
 }
 
 .form-group {
-    margin-bottom: 20px;
+  margin-bottom: 20px;
 }
 
 .form-row {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
 }
 
 label {
-    display: block;
-    margin-bottom: 5px;
-    color: #555;
-    font-weight: 500;
+  display: block;
+  margin-bottom: 5px;
+  color: #555;
+  font-weight: 500;
 }
 
-input, textarea, select {
-    width: 100%;
-    padding: 10px;
-    border: 1px solid #ddd;
-    border-radius: 5px;
-    font-size: 16px;
+input,
+textarea,
+select {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  font-size: 16px;
 }
 
-input:focus, textarea:focus, select:focus {
-    outline: none;
-    border-color: #667eea;
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: #667eea;
 }
 
 .talks-list {
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
 .talk-item {
-    padding: 20px;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    background: #f8f9fa;
+  padding: 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8f9fa;
 }
 
 .talk-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
 }
 
 .talk-actions {
-    display: flex;
-    gap: 10px;
+  display: flex;
+  gap: 10px;
 }
 
 .speaker {
-    color: #666;
-    font-style: italic;
-    margin-bottom: 10px;
+  color: #666;
+  font-style: italic;
+  margin-bottom: 10px;
 }
 
 .description {
-    color: #444;
-    margin-bottom: 15px;
+  color: #444;
+  margin-bottom: 15px;
 }
 
 .schedule-info {
-    display: flex;
-    gap: 20px;
-    color: #666;
-    font-size: 14px;
+  display: flex;
+  gap: 20px;
+  color: #666;
+  font-size: 14px;
 }
 
-.time, .room {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
+.time,
+.room {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .talks-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
 }
 
 .talk-card {
-    padding: 20px;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    background: #f8f9fa;
-    transition: all 0.3s ease;
+  padding: 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8f9fa;
+  transition: all 0.3s ease;
 }
 
 .talk-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+  transform: translateY(-5px);
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
 }
 
 .talk-card.registered {
-    background: #e6fffa;
-    border-color: #48bb78;
+  background: #e6fffa;
+  border-color: #48bb78;
 }
 
 .register-btn {
-    width: 100%;
-    margin-top: 15px;
+  width: 100%;
+  margin-top: 15px;
 }
 
 .register-btn.registered {
-    background: #48bb78;
+  background: #48bb78;
 }
 
 .register-btn.registered:hover {
-    background: #f56565;
+  background: #f56565;
 }
 
 .info {
-    background: #e6fffa;
-    padding: 15px;
-    border-radius: 5px;
-    margin-bottom: 20px;
-    color: #2c5282;
+  background: #e6fffa;
+  padding: 15px;
+  border-radius: 5px;
+  margin-bottom: 20px;
+  color: #2c5282;
 }
 
 .registered-talks {
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
 }
 
 .modal {
-    display: none;
-    position: fixed;
-    z-index: 1000;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    background-color: rgba(0,0,0,0.5);
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
 }
 
 .modal-content {
-    background-color: white;
-    margin: 5% auto;
-    padding: 30px;
-    border-radius: 10px;
-    width: 90%;
-    max-width: 600px;
-    position: relative;
+  background-color: white;
+  margin: 5% auto;
+  padding: 30px;
+  border-radius: 10px;
+  width: 90%;
+  max-width: 600px;
+  position: relative;
 }
 
 .close {
-    position: absolute;
-    right: 20px;
-    top: 20px;
-    font-size: 28px;
-    font-weight: bold;
-    cursor: pointer;
-    color: #999;
+  position: absolute;
+  right: 20px;
+  top: 20px;
+  font-size: 28px;
+  font-weight: bold;
+  cursor: pointer;
+  color: #999;
 }
 
 .close:hover {
-    color: #333;
+  color: #333;
+}
+
+/* Attendees page specific */
+.attendees-container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.attendees-stats {
+  display: flex;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+.stat-card {
+  flex: 1;
+  background: white;
+  padding: 1.5rem;
+  border-radius: 10px;
+  text-align: center;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.stat-number {
+  font-size: 2.5rem;
+  font-weight: bold;
+  color: #2196f3;
+  margin-bottom: 0.5rem;
+}
+
+.stat-label {
+  font-size: 0.9rem;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.attendees-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin-top: 2rem;
+}
+
+.attendee-card {
+  background: white;
+  border-radius: 10px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.attendee-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+}
+
+.attendee-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #f0f0f0;
+}
+
+.attendee-header h3 {
+  margin: 0;
+  color: #333;
+}
+
+.delete-attendee-btn {
+  background: #ff4444;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  padding: 0.4rem 0.6rem;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+}
+
+.delete-attendee-btn:hover {
+  background: #cc0000;
+  transform: scale(1.1);
+}
+
+.attendee-details p {
+  margin: 0.5rem 0;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.attendee-details .email {
+  color: #2196f3;
+}
+
+.attendee-details .registered-talks {
+  color: #4caf50;
+  font-weight: 500;
+}
+
+.attendee-details .created-at {
+  font-size: 0.85rem;
+  color: #999;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 3rem;
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.empty-state h3 {
+  color: #666;
+  margin-bottom: 1rem;
+}
+
+.empty-state p {
+  color: #999;
+  margin-bottom: 2rem;
+}
+
+.subtitle {
+  color: #666;
+  font-size: 1.1rem;
+  margin-bottom: 2rem;
+}
+
+@keyframes fadeOutScale {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
 }
 
 @media (max-width: 768px) {
-    h1 {
-        font-size: 1.8em;
-    }
-    
-    .header {
-        flex-direction: column;
-        gap: 20px;
-        align-items: flex-start;
-    }
-    
-    .talks-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .button-group {
-        flex-direction: column;
-    }
+  h1 {
+    font-size: 1.8em;
+  }
+
+  .header {
+    flex-direction: column;
+    gap: 20px;
+    align-items: flex-start;
+  }
+
+  .talks-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .button-group {
+    flex-direction: column;
+  }
+
+  .attendees-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .attendees-stats {
+    flex-direction: column;
+  }
 }
