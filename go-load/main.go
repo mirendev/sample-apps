@@ -27,7 +27,7 @@ func main() {
 
 	http.ListenAndServe(":3000", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)
-		fmt.Fprintf(w, "name=%s\nVersions: build=%s, runtime=%s\n", name, ver, rtVer)
+		fmt.Fprintf(w, "name=%s\nVersions: build=%s, miren=%s\n", name, ver, rtVer)
 
 		if ok {
 			flusher.Flush()

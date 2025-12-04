@@ -1,0 +1,4 @@
+name = 'go-load'
+post_import = ''
+env = []
+include = []
