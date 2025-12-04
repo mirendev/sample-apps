@@ -1,0 +1,4 @@
+name = 'hw-python-pip'
+post_import = ''
+env = []
+include = []

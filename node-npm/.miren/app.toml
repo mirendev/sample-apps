@@ -1,0 +1,4 @@
+name = 'hw-node-npm'
+post_import = ''
+env = []
+include = []

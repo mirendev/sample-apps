@@ -1,0 +1,27 @@
+name = "rails8"
+post_import = ""
+include = []
+
+[build]
+onbuild = [
+  "bundle exec rake assets:precompile",
+]
+
+[[env]]
+key = "RAILS_ENV"
+value = "production"
+
+[[env]]
+key = "WEB_CONCURRENCY"
+value = "auto"
+
+[[env]]
+key = "RAILS_MAX_THREADS"
+value = "3"
+
+[[env]]
+key = "SECRET_KEY_BASE"
+value = "demoappsecretkey"
+
+[services.web]
+command = "rails s -b 0.0.0.0 -p 3000"
