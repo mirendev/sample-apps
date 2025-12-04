@@ -1,0 +1,28 @@
+name = "db-app"
+
+[[env]]
+key = "DATABASE_URL"
+value = "postgresql://go:hunter2@db.app.miren/postgres?sslmode=disable"
+
+[[services.db.env]]
+key = "POSTGRES_USER"
+value = "go"
+
+[[services.db.env]]
+key = "POSTGRES_PASSWORD"
+value = "hunter2"
+
+[services.db]
+image = "oci.miren.cloud/postgres:15"
+
+[services.db.concurrency]
+mode = "fixed"
+num_instances = 1
+
+# Persistent disk for PostgreSQL data
+[[services.db.disks]]
+name = "postgres-data"
+mount_path = "/var/lib/postgresql"
+size_gb = 10
+filesystem = "ext4"
+lease_timeout = "5m"
