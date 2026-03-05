@@ -1,0 +1,16 @@
+name = "irc-chat"
+
+[services.web.concurrency]
+mode = "fixed"
+num_instances = 1
+
+[[services.web.ports]]
+port = 3000
+name = "http"
+type = "http"
+
+[[services.web.ports]]
+port = 6667
+name = "irc"
+type = "tcp"
+node_port = 30667
