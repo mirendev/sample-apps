@@ -1,0 +1,9 @@
+name = 'rust-chat'
+post_import = ''
+env = []
+include = []
+
+# Uncomment to provision managed Valkey; rust-chat's HistoryStore detects
+# REDIS_URL and switches from in-memory to persistent history.
+# [addons.miren-valkey]
+# variant = "small"

@@ -1,0 +1,863 @@
+use axum::{
+    extract::{
+        ws::{Message, WebSocket},
+        State, WebSocketUpgrade,
+    },
+    response::{Html, IntoResponse},
+    routing::get,
+    Router,
+};
+use futures_util::{sink::SinkExt, stream::StreamExt};
+use redis::{aio::MultiplexedConnection, AsyncCommands};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::{HashMap, VecDeque},
+    env,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+use tokio::sync::broadcast;
+
+const HISTORY_CAP: usize = 200;
+const HISTORY_KEY: &str = "chat:history";
+
+const ADJECTIVES: &[&str] = &[
+    "happy", "snarky", "mellow", "fierce", "crimson", "lumen", "zesty", "brisk", "tidal", "clever",
+    "sleepy", "plucky", "electric", "quiet", "bold", "gentle", "dusty", "lunar", "vivid", "breezy",
+];
+
+const CREATURES: &[&str] = &[
+    "otter", "ferret", "moth", "heron", "crab", "wombat", "finch", "gecko", "badger", "raven",
+    "fox", "lynx", "newt", "tern", "whale", "beetle", "falcon", "mole", "mantis", "lemur",
+];
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct HistoryEntry {
+    nick: String,
+    text: String,
+    ts: u64,
+}
+
+#[derive(Clone, Serialize, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ServerMessage {
+    Welcome {
+        nick: String,
+        members: Vec<String>,
+        history: Vec<HistoryEntry>,
+    },
+    Join {
+        nick: String,
+        members: Vec<String>,
+    },
+    Leave {
+        nick: String,
+        members: Vec<String>,
+    },
+    Chat {
+        nick: String,
+        text: String,
+        ts: u64,
+    },
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ClientMessage {
+    Hello { nick: Option<String> },
+    Send { text: String },
+}
+
+struct AppState {
+    tx: broadcast::Sender<ServerMessage>,
+    nick_counter: AtomicU64,
+    page: String,
+    history: HistoryStore,
+    members: Mutex<HashMap<String, u32>>,
+}
+
+enum HistoryStore {
+    Memory(Mutex<VecDeque<HistoryEntry>>),
+    Valkey(MultiplexedConnection),
+}
+
+impl HistoryStore {
+    async fn init() -> Self {
+        match env::var("REDIS_URL") {
+            Err(_) => {
+                println!("REDIS_URL not set; using in-memory history");
+                Self::memory()
+            }
+            Ok(url) => match redis::Client::open(url) {
+                Err(e) => {
+                    eprintln!("invalid REDIS_URL ({e}); using in-memory history");
+                    Self::memory()
+                }
+                Ok(client) => match client.get_multiplexed_async_connection().await {
+                    Ok(conn) => {
+                        println!("connected to valkey; history is persistent");
+                        Self::Valkey(conn)
+                    }
+                    Err(e) => {
+                        eprintln!("valkey connection failed ({e}); using in-memory history");
+                        Self::memory()
+                    }
+                },
+            },
+        }
+    }
+
+    fn memory() -> Self {
+        Self::Memory(Mutex::new(VecDeque::with_capacity(HISTORY_CAP)))
+    }
+
+    async fn push(&self, entry: &HistoryEntry) {
+        match self {
+            Self::Memory(m) => {
+                if let Ok(mut h) = m.lock() {
+                    if h.len() >= HISTORY_CAP {
+                        h.pop_front();
+                    }
+                    h.push_back(entry.clone());
+                }
+            }
+            Self::Valkey(conn) => {
+                let mut conn = conn.clone();
+                let json = match serde_json::to_string(entry) {
+                    Ok(j) => j,
+                    Err(_) => return,
+                };
+                let push: redis::RedisResult<()> = conn.lpush(HISTORY_KEY, json).await;
+                if let Err(e) = push {
+                    eprintln!("valkey lpush failed: {e}");
+                    return;
+                }
+                let trim: redis::RedisResult<()> =
+                    conn.ltrim(HISTORY_KEY, 0, (HISTORY_CAP as isize) - 1).await;
+                if let Err(e) = trim {
+                    eprintln!("valkey ltrim failed: {e}");
+                }
+            }
+        }
+    }
+
+    async fn list(&self) -> Vec<HistoryEntry> {
+        match self {
+            Self::Memory(m) => m
+                .lock()
+                .map(|h| h.iter().cloned().collect())
+                .unwrap_or_default(),
+            Self::Valkey(conn) => {
+                let mut conn = conn.clone();
+                let items: Vec<String> = match conn
+                    .lrange(HISTORY_KEY, 0, (HISTORY_CAP as isize) - 1)
+                    .await
+                {
+                    Ok(v) => v,
+                    Err(e) => {
+                        eprintln!("valkey lrange failed: {e}");
+                        return Vec::new();
+                    }
+                };
+                let mut out: Vec<HistoryEntry> = items
+                    .iter()
+                    .filter_map(|s| serde_json::from_str(s).ok())
+                    .collect();
+                // LPUSH puts newest at head; callers want oldest → newest.
+                out.reverse();
+                out
+            }
+        }
+    }
+}
+
+impl AppState {
+    fn add_member(&self, nick: &str) {
+        let mut m = self.members.lock().unwrap();
+        *m.entry(nick.to_string()).or_insert(0) += 1;
+    }
+
+    fn remove_member(&self, nick: &str) {
+        let mut m = self.members.lock().unwrap();
+        if let Some(c) = m.get_mut(nick) {
+            *c = c.saturating_sub(1);
+            if *c == 0 {
+                m.remove(nick);
+            }
+        }
+    }
+
+    fn member_list(&self) -> Vec<String> {
+        let m = self.members.lock().unwrap();
+        let mut list: Vec<String> = m.keys().cloned().collect();
+        list.sort();
+        list
+    }
+}
+
+fn valid_nick(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 40
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+#[tokio::main]
+async fn main() {
+    let port = env::var("PORT").unwrap_or_else(|_| "3000".to_string());
+    let title = env::var("ROOM_TITLE").unwrap_or_else(|_| "rust-chat".to_string());
+    let welcome = env::var("WELCOME_MESSAGE")
+        .unwrap_or_else(|_| "A Rust + tokio + axum app running on Miren.".to_string());
+    let accent = env::var("ACCENT_COLOR").unwrap_or_else(|_| "#F6834B".to_string());
+    let version = env::var("MIREN_VERSION").unwrap_or_else(|_| "dev".to_string());
+
+    let (tx, _rx) = broadcast::channel::<ServerMessage>(256);
+    let state = Arc::new(AppState {
+        tx,
+        nick_counter: AtomicU64::new(seed_counter()),
+        page: render_page(&title, &welcome, &accent, &version),
+        history: HistoryStore::init().await,
+        members: Mutex::new(HashMap::new()),
+    });
+
+    let app = Router::new()
+        .route("/", get(index))
+        .route("/ws", get(ws_handler))
+        .route("/health", get(|| async { "ok\n" }))
+        .with_state(state);
+
+    let addr = format!("0.0.0.0:{port}");
+    println!("listening on {addr}");
+    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
+}
+
+async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
+    Html(state.page.clone())
+}
+
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    ws.on_upgrade(|socket| handle_socket(socket, state))
+}
+
+async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
+    let (mut sender, mut receiver) = socket.split();
+
+    // Wait briefly for the client's Hello so we can honor a persisted nick.
+    // If nothing arrives, fall back to a generated one.
+    let proposed = match tokio::time::timeout(Duration::from_secs(2), receiver.next()).await {
+        Ok(Some(Ok(Message::Text(t)))) => match serde_json::from_str::<ClientMessage>(&t) {
+            Ok(ClientMessage::Hello { nick }) => nick,
+            _ => None,
+        },
+        _ => None,
+    };
+    let nick = match proposed {
+        Some(n) if valid_nick(&n) => n,
+        _ => pick_nick(&state),
+    };
+
+    let mut rx = state.tx.subscribe();
+    state.add_member(&nick);
+    let members = state.member_list();
+    let history = state.history.list().await;
+
+    // Greet just this client, including any backlog
+    if send_json(
+        &mut sender,
+        &ServerMessage::Welcome {
+            nick: nick.clone(),
+            members: members.clone(),
+            history,
+        },
+    )
+    .await
+    .is_err()
+    {
+        state.remove_member(&nick);
+        return;
+    }
+
+    // Announce to everyone else
+    let _ = state.tx.send(ServerMessage::Join {
+        nick: nick.clone(),
+        members,
+    });
+
+    // Forward broadcasts to this client; also heartbeat with Ping every 30s
+    let mut send_task = tokio::spawn(async move {
+        let mut ping = tokio::time::interval(Duration::from_secs(30));
+        ping.tick().await; // skip the immediate first tick
+        loop {
+            tokio::select! {
+                msg = rx.recv() => match msg {
+                    Ok(m) => {
+                        if send_json(&mut sender, &m).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                },
+                _ = ping.tick() => {
+                    if sender.send(Message::Ping(Vec::new().into())).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
+    // Read from this client, broadcast chats
+    let state_for_recv = state.clone();
+    let nick_for_recv = nick.clone();
+    let mut recv_task = tokio::spawn(async move {
+        while let Some(Ok(msg)) = receiver.next().await {
+            match msg {
+                Message::Text(text) => {
+                    if let Ok(ClientMessage::Send { text }) = serde_json::from_str(&text) {
+                        let trimmed = text.trim();
+                        if trimmed.is_empty() || trimmed.len() > 500 {
+                            continue;
+                        }
+                        let entry = HistoryEntry {
+                            nick: nick_for_recv.clone(),
+                            text: trimmed.to_string(),
+                            ts: now_ms(),
+                        };
+                        state_for_recv.history.push(&entry).await;
+                        let _ = state_for_recv.tx.send(ServerMessage::Chat {
+                            nick: entry.nick,
+                            text: entry.text,
+                            ts: entry.ts,
+                        });
+                    }
+                }
+                Message::Close(_) => break,
+                _ => {}
+            }
+        }
+    });
+
+    // When either side finishes, stop the other and announce leave
+    tokio::select! {
+        _ = (&mut send_task) => recv_task.abort(),
+        _ = (&mut recv_task) => send_task.abort(),
+    }
+
+    state.remove_member(&nick);
+    let members = state.member_list();
+    let _ = state.tx.send(ServerMessage::Leave { nick, members });
+}
+
+async fn send_json<S>(sender: &mut S, msg: &ServerMessage) -> Result<(), ()>
+where
+    S: SinkExt<Message> + Unpin,
+    S::Error: std::fmt::Debug,
+{
+    let text = serde_json::to_string(msg).map_err(|_| ())?;
+    sender.send(Message::Text(text.into())).await.map_err(|_| ())
+}
+
+fn pick_nick(state: &AppState) -> String {
+    let n = state.nick_counter.fetch_add(1, Ordering::Relaxed);
+    // Mix bits so the two indices decorrelate (without mixing,
+    // consecutive n values share a creature bucket).
+    let a = n.wrapping_mul(2654435761);
+    let b = n.wrapping_mul(11400714819323198485);
+    let adj = ADJECTIVES[(a as usize) % ADJECTIVES.len()];
+    let creature = CREATURES[(b as usize) % CREATURES.len()];
+    let suffix = (b >> 32) as u16 % 100;
+    format!("{adj}-{creature}-{suffix:02}")
+}
+
+fn seed_counter() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn render_page(title: &str, welcome: &str, accent: &str, version: &str) -> String {
+    format!(
+        r##"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;800;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {{
+    --accent: {accent};
+    --bg: #101114;
+    --surface: #1B1F27;
+    --surface-2: #151820;
+    --border: #2a2f3a;
+    --text: #F4F5F5;
+    --text-dim: #969CA6;
+    --topaz-300: #80ABFF;
+    --topaz-700: #0059FF;
+    --font-sans: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'DM Mono', ui-monospace, 'Courier New', monospace;
+  }}
+  * {{ box-sizing: border-box; }}
+  html, body {{ height: 100%; }}
+  body {{
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    background: var(--bg);
+    background-image:
+      radial-gradient(ellipse 80% 60% at 50% 0%, rgba(0, 89, 255, 0.08), transparent 70%),
+      radial-gradient(ellipse 60% 50% at 50% 100%, rgba(246, 131, 75, 0.06), transparent 70%);
+    color: var(--text);
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    padding: 2rem;
+    letter-spacing: -0.01em;
+  }}
+  main {{
+    max-width: 56rem;
+    width: 100%;
+    padding: 2.5rem;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--surface);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.02),
+      0 40px 80px -20px rgba(0, 0, 0, 0.6);
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }}
+  .chat-wrap {{
+    display: grid;
+    grid-template-columns: 1fr 11rem;
+    gap: 1.75rem;
+    align-items: stretch;
+  }}
+  .chat-col {{
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-width: 0;
+  }}
+  .members-panel {{
+    border-left: 1px solid var(--border);
+    padding-left: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 0;
+  }}
+  .members-panel h2 {{
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+  }}
+  .members-panel ul {{
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    overflow-y: auto;
+    max-height: 320px;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }}
+  .members-panel li {{
+    color: var(--topaz-300);
+    word-break: break-all;
+    line-height: 1.4;
+  }}
+  .members-panel li::before {{
+    content: '·';
+    margin-right: 0.5rem;
+    color: var(--text-dim);
+  }}
+  .members-panel li.you {{ color: var(--accent); }}
+  .members-panel li.you::before {{
+    content: '▸';
+    color: var(--accent);
+  }}
+  @media (max-width: 640px) {{
+    .chat-wrap {{ grid-template-columns: 1fr; }}
+    .members-panel {{
+      border-left: none;
+      border-top: 1px solid var(--border);
+      padding-left: 0;
+      padding-top: 1rem;
+    }}
+    .members-panel ul {{ max-height: 120px; }}
+  }}
+  .lockup {{
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    color: #ffffff;
+  }}
+  .lockup svg {{ display: block; }}
+  .lockup .miren {{ height: 32px; width: auto; flex-shrink: 0; }}
+  .lockup .tokio {{ height: 28px; width: auto; }}
+  .lockup .x {{
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    letter-spacing: 0.2em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }}
+  h1 {{
+    margin: 0;
+    font-size: 1.75rem;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+  }}
+  h1 .dot {{ color: var(--accent); }}
+  .lede {{
+    margin: 0;
+    font-size: 1rem;
+    color: var(--text-dim);
+  }}
+  .status {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }}
+  .status .you {{ color: var(--text); }}
+  .status .you b {{ color: var(--accent); font-weight: 500; }}
+  .status .count {{ color: var(--topaz-300); }}
+  .messages {{
+    height: 320px;
+    overflow-y: auto;
+    padding: 0.5rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }}
+  .messages::-webkit-scrollbar {{ width: 8px; }}
+  .messages::-webkit-scrollbar-thumb {{
+    background: var(--border);
+    border-radius: 4px;
+  }}
+  .msg {{
+    display: grid;
+    grid-template-columns: 9rem 1fr;
+    gap: 0.75rem;
+    align-items: baseline;
+    font-size: 0.9375rem;
+    line-height: 1.45;
+  }}
+  .msg .nick {{
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--topaz-300);
+    text-align: right;
+    word-break: break-all;
+  }}
+  .msg .text {{ color: var(--text); word-wrap: break-word; }}
+  .msg.sys {{ color: var(--text-dim); font-style: italic; }}
+  .msg.sys .text {{ color: var(--text-dim); }}
+  .msg.self .nick {{ color: var(--accent); }}
+  .divider {{
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0.25rem 0;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+  }}
+  .divider::before, .divider::after {{
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }}
+  form {{
+    display: flex;
+    gap: 0.75rem;
+  }}
+  input[type="text"] {{
+    flex: 1;
+    padding: 0.75rem 1rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    letter-spacing: -0.01em;
+    outline: none;
+    transition: border-color 120ms ease;
+  }}
+  input[type="text"]:focus {{ border-color: var(--accent); }}
+  input[type="text"]::placeholder {{ color: var(--text-dim); }}
+  button {{
+    padding: 0.75rem 1.25rem;
+    background: var(--accent);
+    border: none;
+    border-radius: 8px;
+    color: #0b0d13;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: filter 120ms ease;
+  }}
+  button:hover {{ filter: brightness(1.1); }}
+  button:disabled {{ opacity: 0.4; cursor: not-allowed; }}
+  footer {{
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }}
+  footer b {{ color: var(--topaz-300); font-weight: 500; }}
+  footer code {{ font-family: var(--font-mono); color: var(--text-dim); }}
+</style>
+</head>
+<body>
+<main>
+  <div class="lockup">
+    <svg class="miren" viewBox="0 0 230 54" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Miren">
+      <path d="M33.1297 1.32788C33.2512 0.874433 33.7173 0.605338 34.1707 0.726838C34.6242 0.848339 34.8933 1.31443 34.7718 1.76787L21.132 52.6722C21.0105 53.1256 20.5444 53.3947 20.091 53.2732C19.6375 53.1517 19.3684 52.6856 19.4899 52.2322L33.1297 1.32788Z" fill="white"/>
+      <path d="M45.1622 7.76666C45.4941 7.43472 46.0323 7.43472 46.3642 7.76666C46.6962 8.09861 46.6962 8.6368 46.3642 8.96875L9.09972 46.2333C8.76777 46.5652 8.22958 46.5652 7.89763 46.2333C7.56569 45.9013 7.56569 45.3631 7.89763 45.0312L45.1622 7.76666Z" fill="white"/>
+      <path d="M52.3631 19.3591C52.8165 19.2376 53.2826 19.5067 53.4041 19.9601C53.5256 20.4136 53.2565 20.8797 52.8031 21.0012L1.89876 34.6409C1.44532 34.7624 0.979232 34.4933 0.857731 34.0399C0.736231 33.5864 1.00533 33.1203 1.45877 32.9988L52.3631 19.3591Z" fill="white"/>
+      <path d="M52.803 32.9989C53.2565 33.1204 53.5255 33.5865 53.404 34.0399C53.2825 34.4934 52.8165 34.7624 52.363 34.6409L1.45872 21.0012C1.00528 20.8797 0.73618 20.4136 0.85768 19.9602C0.979181 19.5067 1.44527 19.2376 1.89871 19.3591L52.803 32.9989Z" fill="white"/>
+      <path d="M46.3642 45.0312C46.6962 45.3632 46.6962 45.9014 46.3642 46.2333C46.0323 46.5653 45.4941 46.5653 45.1621 46.2333L7.89761 8.96879C7.56566 8.63684 7.56566 8.09865 7.89761 7.76671C8.22955 7.43476 8.76774 7.43476 9.09969 7.76671L46.3642 45.0312Z" fill="white"/>
+      <path d="M34.7718 52.2321C34.8933 52.6856 34.6242 53.1517 34.1708 53.2732C33.7173 53.3947 33.2512 53.1256 33.1297 52.6721L19.49 1.76784C19.3685 1.31439 19.6376 0.848306 20.091 0.726806C20.5444 0.605305 21.0105 0.8744 21.132 1.32785L34.7718 52.2321Z" fill="white"/>
+      <path fill-rule="evenodd" clip-rule="evenodd" d="M26.2808 2.35001C25.8114 2.35001 25.4308 2.73056 25.4308 3.20001V12.5019C25.4308 13.013 25.879 13.4065 26.3894 13.3791C26.6349 13.3659 26.8821 13.3592 27.1308 13.3592C27.3796 13.3592 27.6268 13.3659 27.8723 13.3791C28.3827 13.4065 28.8308 13.013 28.8308 12.5019V3.20001C28.8308 2.73056 28.4503 2.35001 27.9808 2.35001H26.2808ZM32.9069 13.5956C32.6514 14.038 32.8425 14.6025 33.2978 14.8345C33.739 15.0594 34.1663 15.3076 34.5781 15.5776C35.0066 15.8586 35.5933 15.7426 35.8495 15.2989L40.5031 7.23859C40.7378 6.83204 40.5985 6.31219 40.192 6.07747L38.7197 5.22747C38.3132 4.99275 37.7933 5.13204 37.5586 5.53859L32.9069 13.5956ZM38.8217 18.2873C38.3792 18.5428 38.2624 19.1273 38.541 19.5557C38.8093 19.9684 39.0559 20.3967 39.2791 20.8388C39.51 21.2962 40.0761 21.4891 40.5198 21.2329L48.5923 16.5722C48.9988 16.3375 49.1381 15.8177 48.9034 15.4111L48.0534 13.9389C47.8187 13.5323 47.2988 13.393 46.8923 13.6278L38.8217 18.2873ZM41.5903 25.3C41.0802 25.3 40.687 25.7464 40.713 26.2559C40.7248 26.4889 40.7308 26.7233 40.7308 26.9592C40.7308 27.2209 40.7234 27.4808 40.7089 27.7388C40.68 28.2501 41.0738 28.7 41.586 28.7H50.9308C51.4003 28.7 51.7808 28.3194 51.7808 27.85V26.15C51.7808 25.6806 51.4003 25.3 50.9308 25.3H41.5903ZM40.4877 32.7486C40.0456 32.4933 39.4815 32.6839 39.2492 33.1386C39.0239 33.5796 38.7752 34.0066 38.5048 34.4181C38.2232 34.8466 38.3389 35.434 38.783 35.6903L46.8923 40.3722C47.2988 40.607 47.8187 40.4677 48.0534 40.0611L48.9034 38.5889C49.1381 38.1823 48.9988 37.6625 48.5923 37.4278L40.4877 32.7486ZM35.8153 38.6419C35.5596 38.1991 34.9745 38.0825 34.5461 38.3617C34.1336 38.6305 33.7056 38.8776 33.2638 39.1012C32.807 39.3324 32.6145 39.898 32.8705 40.3414L37.5586 48.4614C37.7933 48.868 38.3132 49.0073 38.7197 48.7725L40.192 47.9225C40.5985 47.6878 40.7378 47.168 40.5031 46.7614L35.8153 38.6419ZM28.8308 41.4166C28.8308 40.9054 28.3827 40.5119 27.8723 40.5394C27.6268 40.5525 27.3796 40.5592 27.1308 40.5592C26.8821 40.5592 26.6349 40.5525 26.3894 40.5394C25.879 40.5119 25.4308 40.9054 25.4308 41.4166V50.8C25.4308 51.2694 25.8114 51.65 26.2808 51.65H27.9808C28.4503 51.65 28.8308 51.2694 28.8308 50.8V41.4166ZM21.3912 40.3414C21.6472 39.898 21.4547 39.3324 20.9979 39.1012C20.5561 38.8776 20.1281 38.6305 19.7156 38.3617C19.2872 38.0825 18.7021 38.1991 18.4464 38.6419L13.7586 46.7614C13.5239 47.1679 13.6632 47.6878 14.0697 47.9225L15.542 48.7725C15.9485 49.0072 16.4684 48.868 16.7031 48.4614L21.3912 40.3414ZM15.4787 35.6904C15.9228 35.434 16.0385 34.8467 15.7569 34.4181C15.4865 34.0066 15.2378 33.5796 15.0125 33.1386C14.7802 32.6839 14.2161 32.4933 13.774 32.7486L5.66945 37.4278C5.26291 37.6625 5.12361 38.1823 5.35833 38.5889L6.20833 40.0611C6.44305 40.4677 6.9629 40.607 7.36945 40.3722L15.4787 35.6904ZM12.6757 28.7C13.1879 28.7 13.5817 28.2501 13.5528 27.7388C13.5382 27.4808 13.5308 27.2209 13.5308 26.9592C13.5308 26.7233 13.5368 26.4889 13.5487 26.2559C13.5747 25.7464 13.1815 25.3 12.6714 25.3H3.33085C2.86141 25.3 2.48085 25.6806 2.48085 26.15V27.85C2.48085 28.3194 2.86141 28.7 3.33085 28.7H12.6757ZM13.7419 21.2329C14.1856 21.489 14.7517 21.2961 14.9826 20.8388C15.2058 20.3967 15.4523 19.9684 15.7207 19.5556C15.9993 19.1273 15.8825 18.5428 15.44 18.2873L7.36945 13.6278C6.96291 13.393 6.44305 13.5323 6.20833 13.9389L5.35833 15.4111C5.12361 15.8177 5.26291 16.3375 5.66945 16.5722L13.7419 21.2329ZM18.4122 15.2989C18.6684 15.7426 19.2551 15.8586 19.6836 15.5776C20.0954 15.3076 20.5227 15.0594 20.9639 14.8345C21.4191 14.6025 21.6102 14.038 21.3548 13.5955L16.7031 5.53861C16.4684 5.13206 15.9485 4.99276 15.542 5.22749L14.0697 6.07749C13.6632 6.31221 13.5239 6.83206 13.7586 7.23861L18.4122 15.2989Z" fill="white" fill-opacity="0.5"/>
+      <path d="M118.283 18.4473V34.8897C118.283 38.1163 118.349 40.6799 118.482 42.5805C118.615 44.4811 118.88 45.8955 119.278 46.8237C119.72 47.7519 120.361 48.3707 121.2 48.6801C122.084 48.9453 123.278 49.0779 124.781 49.0779L124.913 49.8735H107.145L107.277 49.0779C108.78 49.0779 109.951 48.9453 110.791 48.6801C111.675 48.3707 112.316 47.7519 112.714 46.8237C113.112 45.8955 113.355 44.4811 113.443 42.5805C113.576 40.6799 113.642 38.1163 113.642 34.8897V6.8448L95.0782 49.2105L75.9175 13.3422V34.7571C75.9175 37.9837 76.0059 40.5694 76.1827 42.5142C76.4037 44.4148 76.7794 45.8513 77.3098 46.8237C77.8402 47.7519 78.5695 48.3707 79.4977 48.6801C80.4701 48.9453 81.7077 49.0779 83.2105 49.0779L83.3431 49.8735H67.0333L67.1659 49.0779C68.6687 49.0779 69.8842 48.9453 70.8124 48.6801C71.7406 48.3707 72.4478 47.7519 72.934 46.8237C73.4644 45.8513 73.818 44.4148 73.9948 42.5142C74.1716 40.5694 74.26 37.9837 74.26 34.7571V18.5136C74.26 15.2428 74.1716 12.6571 73.9948 10.7565C73.818 8.8559 73.4644 7.4415 72.934 6.5133C72.4478 5.5409 71.7406 4.9221 70.8124 4.6569C69.8842 4.3475 68.6687 4.1928 67.1659 4.1928L67.0333 3.4635H75.9175L96.4042 42.1164L113.311 3.4635H124.913L124.781 4.1928C123.278 4.1928 122.084 4.3475 121.2 4.6569C120.361 4.9221 119.72 5.5409 119.278 6.5133C118.88 7.4415 118.615 8.8559 118.482 10.7565C118.349 12.6571 118.283 15.2207 118.283 18.4473Z" fill="white"/>
+      <path d="M135.563 17.8506V38.934C135.563 41.2324 135.607 43.0667 135.696 44.4369C135.784 45.7629 136.005 46.7574 136.359 47.4204C136.712 48.0834 137.265 48.5254 138.016 48.7464C138.768 48.9674 139.806 49.0779 141.132 49.0779L141.265 49.8735H125.088L125.22 49.0779C126.591 49.0779 127.651 48.9674 128.403 48.7464C129.198 48.5254 129.773 48.0834 130.127 47.4204C130.48 46.7132 130.701 45.6745 130.79 44.3043C130.878 42.9341 130.922 41.0998 130.922 38.8014V33.4974C130.922 30.2708 130.856 27.7072 130.723 25.8066C130.635 23.906 130.37 22.4916 129.928 21.5634C129.486 20.6352 128.823 20.0385 127.939 19.7733C127.099 19.4639 125.905 19.3092 124.358 19.3092L124.226 18.5799C124.226 18.5799 124.778 18.5136 125.883 18.381C127.033 18.2484 128.469 18.1379 130.193 18.0495C131.917 17.9169 133.707 17.8506 135.563 17.8506ZM129.265 7.2426C129.265 6.226 129.64 5.342 130.392 4.5906C131.143 3.8392 132.027 3.4635 133.044 3.4635C134.06 3.4635 134.944 3.8392 135.696 4.5906C136.447 5.342 136.823 6.226 136.823 7.2426C136.823 8.2592 136.447 9.1432 135.696 9.8946C134.944 10.646 134.06 11.0217 133.044 11.0217C132.027 11.0217 131.143 10.646 130.392 9.8946C129.64 9.1432 129.265 8.2592 129.265 7.2426Z" fill="white"/>
+      <path d="M161.711 17.5191C162.727 17.5191 163.678 17.7622 164.562 18.2484C165.446 18.6904 165.888 19.3534 165.888 20.2374C165.888 21.1214 165.6 21.8065 165.026 22.2927C164.451 22.7347 163.854 22.9557 163.236 22.9557C162.573 22.9557 161.998 22.8231 161.512 22.5579C161.07 22.2485 160.562 21.9612 159.987 21.696C159.457 21.3866 158.683 21.2319 157.666 21.2319C156.473 21.2319 155.434 22.0054 154.55 23.5524C153.666 25.0552 152.981 27.0221 152.495 29.4531C152.053 31.8841 151.832 34.4256 151.832 37.0776C151.832 39.8622 151.876 42.0722 151.965 43.7076C152.097 45.343 152.34 46.5364 152.694 47.2878C153.048 48.0392 153.6 48.5254 154.351 48.7464C155.103 48.9674 156.142 49.0779 157.468 49.0779L157.6 49.8735H141.489L141.622 49.0779C142.904 49.0779 143.92 48.9674 144.672 48.7464C145.423 48.5254 145.976 48.0392 146.329 47.2878C146.683 46.5364 146.904 45.343 146.992 43.7076C147.125 42.0722 147.191 39.8622 147.191 37.0776V33.2322C147.191 30.0056 147.125 27.4641 146.992 25.6077C146.904 23.7071 146.639 22.3148 146.197 21.4308C145.799 20.5468 145.158 19.9943 144.274 19.7733C143.434 19.5081 142.263 19.3755 140.76 19.3755L140.627 18.6462C140.627 18.6462 141.18 18.5799 142.285 18.4473C143.39 18.3147 144.782 18.1821 146.462 18.0495C148.186 17.9169 149.976 17.8506 151.832 17.8506V27.5967C152.318 24.4585 153.401 22.0054 155.081 20.2374C156.805 18.4252 159.015 17.5191 161.711 17.5191Z" fill="white"/>
+      <path d="M191.371 33.0996H169.625V34.2267C169.625 37.5417 170.111 40.26 171.083 42.3816C172.056 44.5032 173.338 46.0723 174.929 47.0889C176.52 48.1055 178.222 48.6138 180.034 48.6138C181.89 48.6138 183.68 48.216 185.404 47.4204C187.172 46.5806 188.564 45.2104 189.581 43.3098L190.576 43.8402C189.338 46.2712 187.68 47.995 185.603 49.0116C183.57 50.0282 181.382 50.5365 179.039 50.5365C176.564 50.5365 174.222 49.9398 172.012 48.7464C169.802 47.5088 168.011 45.6745 166.641 43.2435C165.271 40.8125 164.586 37.8069 164.586 34.2267C164.586 31.2211 165.138 28.4807 166.243 26.0055C167.348 23.5303 168.918 21.5634 170.951 20.1048C173.028 18.602 175.525 17.8506 178.443 17.8506C181.316 17.8506 183.702 18.5357 185.603 19.9059C187.504 21.2761 188.94 23.1104 189.913 25.4088C190.885 27.7072 191.371 30.2708 191.371 33.0996ZM178.509 19.1766C175.813 19.1766 173.757 20.3258 172.343 22.6242C170.929 24.9226 170.067 27.7735 169.757 31.1769H186.266C186.133 27.5525 185.47 24.6574 184.277 22.4916C183.084 20.2816 181.161 19.1766 178.509 19.1766Z" fill="white"/>
+      <path d="M202.718 17.8506V29.7183C202.983 27.8619 203.513 26.0276 204.309 24.2154C205.149 22.359 206.298 20.8341 207.757 19.6407C209.259 18.4473 211.094 17.8506 213.259 17.8506C216.663 17.8506 219.204 18.7788 220.884 20.6352C222.564 22.4474 223.403 25.0552 223.403 28.4586V38.934C223.403 41.9396 223.514 44.1717 223.735 45.6303C223.956 47.0889 224.464 48.0392 225.26 48.4812C226.055 48.879 227.315 49.0779 229.039 49.0779L229.171 49.8735H213.061L213.193 49.0779C214.563 49.0779 215.624 48.9674 216.376 48.7464C217.127 48.5254 217.657 48.0613 217.967 47.3541C218.32 46.6469 218.541 45.5861 218.63 44.1717C218.718 42.7131 218.762 40.7683 218.762 38.3373V29.1216C218.762 26.2486 218.32 23.9944 217.436 22.359C216.552 20.7236 214.895 19.9059 212.464 19.9059C210.917 19.9059 209.569 20.37 208.42 21.2982C207.315 22.2264 206.386 23.4419 205.635 24.9447C204.928 26.4033 204.353 27.9945 203.911 29.7183C203.469 31.4421 203.16 33.1217 202.983 34.7571C202.806 36.3483 202.718 37.7406 202.718 38.934C202.718 41.2324 202.762 43.0667 202.85 44.4369C202.939 45.7629 203.16 46.7574 203.513 47.4204C203.867 48.0834 204.419 48.5254 205.171 48.7464C205.922 48.9674 206.961 49.0779 208.287 49.0779L208.42 49.8735H192.242L192.375 49.0779C193.745 49.0779 194.806 48.9674 195.557 48.7464C196.353 48.5254 196.928 48.0834 197.281 47.4204C197.635 46.7132 197.856 45.6745 197.944 44.3043C198.033 42.9341 198.077 41.0998 198.077 38.8014V33.4974C198.077 30.2708 198.01 27.7072 197.878 25.8066C197.789 23.906 197.524 22.4916 197.082 21.5634C196.64 20.6352 195.977 20.0385 195.093 19.7733C194.253 19.4639 193.06 19.3092 191.513 19.3092L191.38 18.5799C191.38 18.5799 191.933 18.5136 193.038 18.381C194.187 18.2484 195.624 18.1379 197.347 18.0495C199.071 17.9169 200.861 17.8506 202.718 17.8506Z" fill="white"/>
+    </svg>
+    <span class="x">×</span>
+    <svg class="tokio" viewBox="0 0 134 56" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Tokio">
+      <path d="M76.4379 22.5978H71.5762V19.7168H84.4508V22.5978H79.589V37.4531H76.3479L76.4379 22.5978Z" fill="white"/>
+      <path d="M86.6122 36.0133C85.4417 34.8428 84.8115 33.4023 84.8115 31.6017C84.8115 29.801 85.3517 28.3605 86.6122 27.1901C87.7826 26.0197 89.3131 25.4795 91.2938 25.4795C93.2746 25.4795 94.8051 26.0197 95.9755 27.1901C97.1459 28.3605 97.6861 29.801 97.6861 31.6017C97.6861 33.4023 97.1459 34.8428 95.8855 36.0133C94.7151 37.1837 93.1845 37.7239 91.2038 37.7239C89.2231 37.7239 87.7826 37.0936 86.6122 36.0133ZM88.7729 28.9907C88.1427 29.621 87.7826 30.5213 87.7826 31.6017C87.7826 32.6821 88.1427 33.5824 88.7729 34.2126C89.4032 34.8428 90.2135 35.203 91.2038 35.203C92.1942 35.203 93.0045 34.8428 93.6347 34.2126C94.2649 33.5824 94.625 32.6821 94.625 31.6017C94.625 30.5213 94.2649 29.621 93.6347 28.9907C93.0045 28.3605 92.1942 28.0004 91.2038 28.0004C90.3035 28.0004 89.4932 28.3605 88.7729 28.9907Z" fill="white"/>
+      <path d="M100.747 18.8164H103.718V37.4531H100.747V18.8164ZM112.181 37.4531H108.76L103.718 31.2408L108.76 25.8389H112.001L107.139 31.0608L112.181 37.4531Z" fill="white"/>
+      <path d="M114.701 23.1382C114.341 22.7781 114.161 22.328 114.161 21.8778C114.161 21.4276 114.341 20.9775 114.701 20.6173C115.061 20.2572 115.512 20.0771 115.962 20.0771C116.412 20.0771 116.862 20.2572 117.222 20.6173C117.582 20.9775 117.762 21.4276 117.762 21.8778C117.762 22.328 117.582 22.7781 117.222 23.1382C116.862 23.4984 116.412 23.6784 115.962 23.6784C115.512 23.6784 115.061 23.4984 114.701 23.1382ZM114.431 37.4534V25.7492H117.402V37.3633L114.431 37.4534Z" fill="white"/>
+      <path d="M122.264 36.0133C121.093 34.8428 120.463 33.4023 120.463 31.6017C120.463 29.801 121.003 28.3605 122.264 27.1901C123.434 26.0197 124.964 25.4795 126.945 25.4795C128.926 25.4795 130.456 26.0197 131.627 27.1901C132.797 28.3605 133.337 29.801 133.337 31.6017C133.337 33.4023 132.797 34.8428 131.537 36.0133C130.366 37.1837 128.836 37.7239 126.855 37.7239C124.874 37.7239 123.434 37.0936 122.264 36.0133ZM124.424 28.9907C123.794 29.621 123.434 30.5213 123.434 31.6017C123.434 32.6821 123.794 33.5824 124.424 34.2126C125.055 34.8428 125.865 35.203 126.855 35.203C127.846 35.203 128.656 34.8428 129.286 34.2126C129.916 33.5824 130.276 32.6821 130.276 31.6017C130.276 30.5213 129.916 29.621 129.286 28.9907C128.656 28.3605 127.846 28.0004 126.855 28.0004C125.955 28.0004 125.145 28.3605 124.424 28.9907Z" fill="white"/>
+      <path d="M12.6048 40.6949C13.4501 40.6949 14.1353 40.0096 14.1353 39.1643C14.1353 38.319 13.4501 37.6338 12.6048 37.6338C11.7595 37.6338 11.0742 38.319 11.0742 39.1643C11.0742 40.0096 11.7595 40.6949 12.6048 40.6949Z" fill="white"/>
+      <path d="M31.512 48.6172C30.6117 48.6172 29.9814 49.3374 29.9814 50.1477C29.9814 51.0481 30.7017 51.6783 31.512 51.6783C32.4123 51.6783 33.0425 50.958 33.0425 50.1477C33.0425 49.2474 32.3223 48.6172 31.512 48.6172Z" fill="white"/>
+      <path d="M31.512 7.65308C32.4123 7.65308 33.0425 6.93282 33.0425 6.12253C33.0425 5.31224 32.3223 4.50195 31.512 4.50195C30.6117 4.50195 29.9814 5.22221 29.9814 6.0325C29.9814 6.84279 30.6117 7.65308 31.512 7.65308Z" fill="white"/>
+      <path d="M50.4182 18.6373C51.3186 18.6373 51.9488 17.917 51.9488 17.1067C51.9488 16.2964 51.2285 15.5762 50.4182 15.5762C49.608 15.5762 48.8877 16.2964 48.8877 17.1067C48.8877 17.917 49.5179 18.6373 50.4182 18.6373Z" fill="white"/>
+      <path d="M12.6048 18.6365C13.5051 18.6365 14.1353 17.9162 14.1353 17.1059C14.1353 16.2956 13.5051 15.4854 12.6048 15.4854C11.7044 15.4854 11.0742 16.2056 11.0742 17.0159C11.0742 17.8262 11.7044 18.6365 12.6048 18.6365Z" fill="white"/>
+      <path d="M50.4182 40.6949C51.2635 40.6949 51.9488 40.0096 51.9488 39.1643C51.9488 38.319 51.2635 37.6338 50.4182 37.6338C49.5729 37.6338 48.8877 38.319 48.8877 39.1643C48.8877 40.0096 49.5729 40.6949 50.4182 40.6949Z" fill="white"/>
+      <path d="M31.512 26.5596C30.6117 26.5596 29.9814 27.2798 29.9814 28.0901C29.9814 28.9004 30.7017 29.6207 31.512 29.6207C32.4123 29.6207 33.0425 28.9004 33.0425 28.0901C33.0425 27.2798 32.3223 26.5596 31.512 26.5596Z" fill="white"/>
+      <path d="M61.9421 27.0997H41.955H41.865C41.7749 26.0193 41.5048 24.9389 41.0547 23.9486L47.2669 20.3473L48.1672 19.8071L47.0868 18.0064L46.1865 18.5466L40.0643 22.1479C39.3441 21.1576 38.4437 20.2572 37.3633 19.537L37.5434 19.2669L47.627 1.98071L48.1672 1.08039L46.3666 0L45.8264 0.900322L35.7428 18.0965L35.5627 18.3666C34.5723 18.0064 33.582 17.7363 32.5016 17.5563V10.6238V9.63344H30.4309V10.6238V17.5563C29.3505 17.6463 28.2701 17.9164 27.3698 18.3666L27.0997 18.0965L17.1061 0.900322L16.5659 0L14.7653 1.08039L15.3055 1.98071L25.299 19.1769L25.4791 19.4469C24.4887 20.1672 23.5884 21.0675 22.8682 22.0579L16.746 18.4566L15.8457 17.9164L14.7653 19.717L15.6656 20.2572L21.8778 23.8585C21.4277 24.8489 21.1576 25.9293 21.0675 27.0096H20.9775H1.08039H0V29.0804H1.08039H20.9775H21.0675C21.1576 30.1608 21.4277 31.2412 21.8778 32.2315L15.6656 35.8328L14.7653 36.373L15.8457 38.1736L16.746 37.6334L22.8682 34.0322C23.4984 34.9325 24.2187 35.6527 25.0289 36.283L24.7588 36.6431L14.8553 54.0193L14.3151 54.9196L16.1158 56L16.656 55.0997L26.6495 37.9035L26.8296 37.5434C27.91 38.0836 29.0804 38.4437 30.4309 38.5338V45.3762V46.4566H32.5016V45.3762V38.5338C33.8521 38.4437 35.0225 37.9936 36.1929 37.4534L36.373 37.7235L46.4566 55.0096L46.9968 55.91L48.7974 54.8296L48.2572 53.9293L38.2637 36.7331L38.0836 36.373C38.8939 35.7428 39.6142 35.0225 40.1543 34.2122L46.2765 37.8135L47.1769 38.3537L48.2572 36.5531L47.3569 36.0129L41.1447 32.4116C41.5949 31.4212 41.865 30.3408 41.955 29.2605H42.045H61.9421H63.0225V27.0997H61.9421ZM31.5113 36.373C26.9196 36.373 23.2283 32.6817 23.2283 28.09C23.2283 23.4984 26.9196 19.8071 31.5113 19.8071C36.1029 19.8071 39.7942 23.4984 39.7942 28.09C39.7942 32.6817 36.0129 36.373 31.5113 36.373Z" fill="white"/>
+    </svg>
+  </div>
+  <div>
+    <h1>{title}<span class="dot">.</span></h1>
+    <p class="lede">{welcome}</p>
+  </div>
+  <div class="status">
+    <span class="you">You are <b id="you">connecting…</b></span>
+    <span class="count"><span id="count">0</span> online</span>
+  </div>
+  <div class="chat-wrap">
+    <div class="chat-col">
+      <div class="messages" id="messages"></div>
+      <form id="form" autocomplete="off">
+        <input id="input" type="text" placeholder="Say something…" maxlength="500" disabled>
+        <button type="submit" id="send" disabled>Send</button>
+      </form>
+    </div>
+    <aside class="members-panel">
+      <h2>Here now</h2>
+      <ul id="members"></ul>
+    </aside>
+  </div>
+  <footer>
+    <span><b>Enjoy the Deploy</b></span>
+    <code>{version}</code>
+  </footer>
+</main>
+<script>
+(() => {{
+  const messagesEl = document.getElementById('messages');
+  const membersEl = document.getElementById('members');
+  const form = document.getElementById('form');
+  const input = document.getElementById('input');
+  const send = document.getElementById('send');
+  const youEl = document.getElementById('you');
+  const countEl = document.getElementById('count');
+  const DEBOUNCE_MS = 3000;
+  let me = null;
+  let ws = null;
+  let members = new Set();
+  const pendingLeaves = new Map();
+
+  function esc(s) {{
+    return s.replace(/[&<>"']/g, c => ({{
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }})[c]);
+  }}
+
+  function addMsg(nick, text, opts = {{}}) {{
+    const el = document.createElement('div');
+    el.className = 'msg' + (opts.sys ? ' sys' : '') + (opts.self ? ' self' : '');
+    el.innerHTML = `<span class="nick">${{esc(nick)}}</span><span class="text">${{esc(text)}}</span>`;
+    messagesEl.appendChild(el);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }}
+
+  function addDivider(label) {{
+    const el = document.createElement('div');
+    el.className = 'divider';
+    el.innerHTML = `<span>${{esc(label)}}</span>`;
+    messagesEl.appendChild(el);
+  }}
+
+  function renderMembers(list) {{
+    members = new Set(list);
+    membersEl.innerHTML = '';
+    for (const m of [...members].sort()) {{
+      const li = document.createElement('li');
+      if (m === me) li.className = 'you';
+      li.textContent = m;
+      membersEl.appendChild(li);
+    }}
+    countEl.textContent = members.size;
+  }}
+
+  function handleJoin(nick) {{
+    if (nick === me) return;
+    if (pendingLeaves.has(nick)) {{
+      clearTimeout(pendingLeaves.get(nick));
+      pendingLeaves.delete(nick);
+      return; // suppress both leave and join
+    }}
+    addMsg('system', `${{nick}} joined`, {{ sys: true }});
+  }}
+
+  function handleLeave(nick) {{
+    if (nick === me) return;
+    const t = setTimeout(() => {{
+      addMsg('system', `${{nick}} left`, {{ sys: true }});
+      pendingLeaves.delete(nick);
+    }}, DEBOUNCE_MS);
+    pendingLeaves.set(nick, t);
+  }}
+
+  function connect() {{
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${{proto}}//${{location.host}}/ws`);
+
+    ws.addEventListener('open', () => {{
+      const stored = localStorage.getItem('rust-chat-nick');
+      ws.send(JSON.stringify({{ type: 'hello', nick: stored || null }}));
+      input.disabled = false;
+      send.disabled = false;
+      input.focus();
+    }});
+
+    ws.addEventListener('message', (ev) => {{
+      let msg;
+      try {{ msg = JSON.parse(ev.data); }} catch {{ return; }}
+      switch (msg.type) {{
+        case 'welcome':
+          me = msg.nick;
+          localStorage.setItem('rust-chat-nick', me);
+          youEl.textContent = me;
+          renderMembers(msg.members || []);
+          if (Array.isArray(msg.history) && msg.history.length) {{
+            for (const h of msg.history) {{
+              addMsg(h.nick, h.text, {{ self: h.nick === me }});
+            }}
+            addDivider(`${{msg.history.length}} recent message${{msg.history.length === 1 ? '' : 's'}}`);
+          }}
+          addMsg('system', `You are ${{me}}`, {{ sys: true }});
+          break;
+        case 'join':
+          renderMembers(msg.members || []);
+          handleJoin(msg.nick);
+          break;
+        case 'leave':
+          renderMembers(msg.members || []);
+          handleLeave(msg.nick);
+          break;
+        case 'chat':
+          addMsg(msg.nick, msg.text, {{ self: msg.nick === me }});
+          break;
+      }}
+    }});
+
+    ws.addEventListener('close', () => {{
+      input.disabled = true;
+      send.disabled = true;
+      addMsg('system', 'disconnected, reconnecting…', {{ sys: true }});
+      setTimeout(connect, 2000);
+    }});
+  }}
+
+  form.addEventListener('submit', (e) => {{
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({{ type: 'send', text }}));
+    input.value = '';
+  }});
+
+  connect();
+}})();
+</script>
+</body>
+</html>
+"##
+    )
+}

@@ -1,0 +1,12 @@
+[package]
+name = "rust-chat"
+version = "0.1.10"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+redis = { version = "0.27", features = ["tokio-comp"] }
