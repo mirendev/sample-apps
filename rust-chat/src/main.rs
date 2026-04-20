@@ -7,7 +7,10 @@ use axum::{
     routing::get,
     Router,
 };
-use futures_util::{sink::SinkExt, stream::StreamExt};
+use futures_util::{
+    sink::SinkExt,
+    stream::{SplitSink, SplitStream, StreamExt},
+};
 use redis::{aio::MultiplexedConnection, AsyncCommands};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -20,6 +23,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::broadcast;
+use tracing_subscriber::EnvFilter;
 
 const HISTORY_CAP: usize = 200;
 const HISTORY_KEY: &str = "chat:history";
@@ -88,21 +92,21 @@ impl HistoryStore {
     async fn init() -> Self {
         match env::var("REDIS_URL") {
             Err(_) => {
-                println!("REDIS_URL not set; using in-memory history");
+                tracing::info!("REDIS_URL not set, using in-memory history");
                 Self::memory()
             }
             Ok(url) => match redis::Client::open(url) {
                 Err(e) => {
-                    eprintln!("invalid REDIS_URL ({e}); using in-memory history");
+                    tracing::warn!(error = %e, "invalid REDIS_URL, using in-memory history");
                     Self::memory()
                 }
                 Ok(client) => match client.get_multiplexed_async_connection().await {
                     Ok(conn) => {
-                        println!("connected to valkey; history is persistent");
+                        tracing::info!("connected to valkey, history is persistent");
                         Self::Valkey(conn)
                     }
                     Err(e) => {
-                        eprintln!("valkey connection failed ({e}); using in-memory history");
+                        tracing::warn!(error = %e, "valkey connection failed, using in-memory history");
                         Self::memory()
                     }
                 },
@@ -117,12 +121,11 @@ impl HistoryStore {
     async fn push(&self, entry: &HistoryEntry) {
         match self {
             Self::Memory(m) => {
-                if let Ok(mut h) = m.lock() {
-                    if h.len() >= HISTORY_CAP {
-                        h.pop_front();
-                    }
-                    h.push_back(entry.clone());
+                let mut h = m.lock().unwrap();
+                if h.len() >= HISTORY_CAP {
+                    h.pop_front();
                 }
+                h.push_back(entry.clone());
             }
             Self::Valkey(conn) => {
                 let mut conn = conn.clone();
@@ -132,13 +135,13 @@ impl HistoryStore {
                 };
                 let push: redis::RedisResult<()> = conn.lpush(HISTORY_KEY, json).await;
                 if let Err(e) = push {
-                    eprintln!("valkey lpush failed: {e}");
+                    tracing::warn!(error = %e, "valkey lpush failed");
                     return;
                 }
                 let trim: redis::RedisResult<()> =
                     conn.ltrim(HISTORY_KEY, 0, (HISTORY_CAP as isize) - 1).await;
                 if let Err(e) = trim {
-                    eprintln!("valkey ltrim failed: {e}");
+                    tracing::warn!(error = %e, "valkey ltrim failed");
                 }
             }
         }
@@ -146,10 +149,7 @@ impl HistoryStore {
 
     async fn list(&self) -> Vec<HistoryEntry> {
         match self {
-            Self::Memory(m) => m
-                .lock()
-                .map(|h| h.iter().cloned().collect())
-                .unwrap_or_default(),
+            Self::Memory(m) => m.lock().unwrap().iter().cloned().collect(),
             Self::Valkey(conn) => {
                 let mut conn = conn.clone();
                 let items: Vec<String> = match conn
@@ -158,7 +158,7 @@ impl HistoryStore {
                 {
                     Ok(v) => v,
                     Err(e) => {
-                        eprintln!("valkey lrange failed: {e}");
+                        tracing::warn!(error = %e, "valkey lrange failed");
                         return Vec::new();
                     }
                 };
@@ -207,6 +207,12 @@ fn valid_nick(s: &str) -> bool {
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .init();
+
     let port = env::var("PORT").unwrap_or_else(|_| "3000".to_string());
     let title = env::var("ROOM_TITLE").unwrap_or_else(|_| "rust-chat".to_string());
     let welcome = env::var("WELCOME_MESSAGE")
@@ -230,9 +236,33 @@ async fn main() {
         .with_state(state);
 
     let addr = format!("0.0.0.0:{port}");
-    println!("listening on {addr}");
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    tracing::info!(%addr, "listening");
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .unwrap();
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async { tokio::signal::ctrl_c().await.ok(); };
+
+    #[cfg(unix)]
+    let terminate = async {
+        use tokio::signal::unix::{signal, SignalKind};
+        if let Ok(mut stream) = signal(SignalKind::terminate()) {
+            stream.recv().await;
+        }
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {}
+        _ = terminate => {}
+    }
+    tracing::info!("shutdown signal received");
 }
 
 async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
@@ -249,15 +279,7 @@ async fn ws_handler(
 async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let (mut sender, mut receiver) = socket.split();
 
-    // Wait briefly for the client's Hello so we can honor a persisted nick.
-    // If nothing arrives, fall back to a generated one.
-    let proposed = match tokio::time::timeout(Duration::from_secs(2), receiver.next()).await {
-        Ok(Some(Ok(Message::Text(t)))) => match serde_json::from_str::<ClientMessage>(&t) {
-            Ok(ClientMessage::Hello { nick }) => nick,
-            _ => None,
-        },
-        _ => None,
-    };
+    let proposed = read_hello_nick(&mut receiver).await;
     let nick = match proposed {
         Some(n) if valid_nick(&n) => n,
         _ => pick_nick(&state),
@@ -268,18 +290,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let members = state.member_list();
     let history = state.history.list().await;
 
+    tracing::info!(%nick, members = members.len(), "session start");
+
     // Greet just this client, including any backlog
-    if send_json(
-        &mut sender,
-        &ServerMessage::Welcome {
-            nick: nick.clone(),
-            members: members.clone(),
-            history,
-        },
-    )
-    .await
-    .is_err()
-    {
+    let welcome = ServerMessage::Welcome {
+        nick: nick.clone(),
+        members: members.clone(),
+        history,
+    };
+    if send_msg(&mut sender, &welcome).await.is_err() {
         state.remove_member(&nick);
         return;
     }
@@ -298,7 +317,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
             tokio::select! {
                 msg = rx.recv() => match msg {
                     Ok(m) => {
-                        if send_json(&mut sender, &m).await.is_err() {
+                        if send_msg(&mut sender, &m).await.is_err() {
                             break;
                         }
                     }
@@ -319,8 +338,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
             match msg {
-                Message::Text(text) => {
-                    if let Ok(ClientMessage::Send { text }) = serde_json::from_str(&text) {
+                Message::Text(frame) => {
+                    if let Ok(ClientMessage::Send { text }) = serde_json::from_str(&frame) {
                         let trimmed = text.trim();
                         if trimmed.is_empty() || trimmed.len() > 500 {
                             continue;
@@ -352,16 +371,35 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
 
     state.remove_member(&nick);
     let members = state.member_list();
+    tracing::info!(%nick, members = members.len(), "session end");
     let _ = state.tx.send(ServerMessage::Leave { nick, members });
 }
 
-async fn send_json<S>(sender: &mut S, msg: &ServerMessage) -> Result<(), ()>
-where
-    S: SinkExt<Message> + Unpin,
-    S::Error: std::fmt::Debug,
-{
-    let text = serde_json::to_string(msg).map_err(|_| ())?;
-    sender.send(Message::Text(text.into())).await.map_err(|_| ())
+/// Wait up to 2 seconds for the client's Hello so we can honor a persisted
+/// nick. Any failure or non-Hello returns `None`, and the caller falls back to
+/// a generated name.
+async fn read_hello_nick(receiver: &mut SplitStream<WebSocket>) -> Option<String> {
+    let msg = tokio::time::timeout(Duration::from_secs(2), receiver.next())
+        .await
+        .ok()?
+        ?
+        .ok()?;
+    let Message::Text(frame) = msg else {
+        return None;
+    };
+    match serde_json::from_str::<ClientMessage>(&frame).ok()? {
+        ClientMessage::Hello { nick } => nick,
+        _ => None,
+    }
+}
+
+async fn send_msg(
+    sender: &mut SplitSink<WebSocket, Message>,
+    msg: &ServerMessage,
+) -> anyhow::Result<()> {
+    let text = serde_json::to_string(msg)?;
+    sender.send(Message::Text(text.into())).await?;
+    Ok(())
 }
 
 fn pick_nick(state: &AppState) -> String {
