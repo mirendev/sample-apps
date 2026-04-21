@@ -439,7 +439,12 @@
 
     ws.addEventListener('open', () => {
       const stored = localStorage.getItem('rust-chat-nick');
-      ws.send(JSON.stringify({ type: 'hello', nick: stored || null }));
+      let uuid = localStorage.getItem('rust-chat-uuid');
+      if (!uuid) {
+        uuid = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()) + '-' + Math.random().toString(36).slice(2);
+        localStorage.setItem('rust-chat-uuid', uuid);
+      }
+      ws.send(JSON.stringify({ type: 'hello', nick: stored || null, uuid }));
       input.disabled = false;
       send.disabled = false;
       input.focus();

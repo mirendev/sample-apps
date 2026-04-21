@@ -15,14 +15,29 @@ use crate::state::{
 pub async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let (mut sender, mut receiver) = socket.split();
 
-    let proposed = read_hello_nick(&mut receiver).await;
-    let nick = match proposed {
-        Some(n) if valid_nick(&n) => n,
-        _ => pick_nick(&state.nick_counter),
-    };
+    let (proposed_nick, proposed_uuid) = read_hello(&mut receiver).await;
+    // New clients persist a UUID in localStorage and send it with Hello; the
+    // server uses it to distinguish multi-tab / grace resumes from collisions
+    // by a stranger. Legacy clients (cached pre-UUID HTML) don't send one —
+    // `join_member` falls back to the old loose-match behavior for them.
+    let uuid = proposed_uuid.as_deref();
 
     let mut rx = state.tx.subscribe();
-    let join_kind = state.join_member(&nick);
+    let (nick, join_kind) = match proposed_nick {
+        Some(n) if valid_nick(&n) => match state.join_member(&n, uuid) {
+            Some(jk) => (n, jk),
+            None => {
+                // Proposed nick is held by a different uuid — reassign.
+                tracing::info!(%n, "proposed nick collides with a different uuid, reassigning");
+                let nick = state.claim_fresh_nick(uuid, || pick_nick(&state.nick_counter));
+                (nick, JoinKind::Fresh)
+            }
+        },
+        _ => {
+            let nick = state.claim_fresh_nick(uuid, || pick_nick(&state.nick_counter));
+            (nick, JoinKind::Fresh)
+        }
+    };
     let members = state.member_list();
     let history = state.history.list().await;
 
@@ -147,20 +162,20 @@ async fn end_session(state: &Arc<AppState>, nick: &str) {
 }
 
 /// Wait up to 2 seconds for the client's Hello so we can honor a persisted
-/// nick. Any failure or non-Hello returns `None`, and the caller falls back to
-/// a generated name.
-async fn read_hello_nick(receiver: &mut SplitStream<WebSocket>) -> Option<String> {
-    let msg = tokio::time::timeout(Duration::from_secs(2), receiver.next())
-        .await
-        .ok()?
-        ?
-        .ok()?;
-    let Message::Text(frame) = msg else {
-        return None;
+/// nick and uuid. Any failure or non-Hello yields `(None, None)`.
+async fn read_hello(
+    receiver: &mut SplitStream<WebSocket>,
+) -> (Option<String>, Option<String>) {
+    let msg = match tokio::time::timeout(Duration::from_secs(2), receiver.next()).await {
+        Ok(Some(Ok(m))) => m,
+        _ => return (None, None),
     };
-    match serde_json::from_str::<ClientMessage>(&frame).ok()? {
-        ClientMessage::Hello { nick } => nick,
-        _ => None,
+    let Message::Text(frame) = msg else {
+        return (None, None);
+    };
+    match serde_json::from_str::<ClientMessage>(&frame).ok() {
+        Some(ClientMessage::Hello { nick, uuid }) => (nick, uuid),
+        _ => (None, None),
     }
 }
 

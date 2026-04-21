@@ -45,17 +45,25 @@ pub enum ServerMessage {
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
-    Hello { nick: Option<String> },
-    Send { text: String },
+    Hello {
+        nick: Option<String>,
+        uuid: Option<String>,
+    },
+    Send {
+        text: String,
+    },
 }
 
 pub enum Presence {
-    /// One or more live sessions share this nick.
-    Active(u32),
+    /// One or more live sessions for the same uuid share this nick.
+    Active { uuid: String, count: u32 },
     /// No live sessions, but we're holding the seat for up to `GRACE_PERIOD`
-    /// so a flaky reconnect resumes silently. Firing the oneshot cancels the
-    /// pending cleanup.
-    Grace(oneshot::Sender<()>),
+    /// so a flaky reconnect from the same uuid resumes silently. Firing the
+    /// oneshot cancels the pending cleanup.
+    Grace {
+        uuid: String,
+        cancel: oneshot::Sender<()>,
+    },
 }
 
 pub enum JoinKind {
@@ -76,23 +84,85 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn join_member(&self, nick: &str) -> JoinKind {
+    /// Pick a fresh nick atomically under the members lock. `next` is called
+    /// repeatedly until it yields a nick nobody currently holds, at which
+    /// point we insert it as `Active { uuid, count: 1 }` and return. Closes
+    /// the race where two simultaneous connections could both roll the same
+    /// unclaimed nick and then both call `join_member`.
+    ///
+    /// `uuid` is `None` for legacy clients that haven't upgraded to the
+    /// UUID-bearing Hello; we store an empty string and treat it as the
+    /// pre-UUID loose-match path elsewhere.
+    pub fn claim_fresh_nick(&self, uuid: Option<&str>, mut next: impl FnMut() -> String) -> String {
+        let mut m = self.members.lock().unwrap();
+        loop {
+            let candidate = next();
+            if !m.contains_key(&candidate) {
+                m.insert(
+                    candidate.clone(),
+                    Presence::Active {
+                        uuid: uuid.unwrap_or("").to_string(),
+                        count: 1,
+                    },
+                );
+                return candidate;
+            }
+        }
+    }
+
+    /// Attach to an existing nick. Returns `None` if the nick is held by a
+    /// different uuid — caller should reassign. Otherwise returns the
+    /// `JoinKind` describing how we attached (fresh insert, silent multi-tab,
+    /// or grace resume).
+    ///
+    /// `uuid` is `None` for legacy clients that don't send one. In that case
+    /// we skip UUID verification entirely and fall back to the pre-UUID
+    /// behavior (loose attach by nick alone). Strict collision protection
+    /// only kicks in once both sides speak UUID.
+    pub fn join_member(&self, nick: &str, uuid: Option<&str>) -> Option<JoinKind> {
         let mut m = self.members.lock().unwrap();
         match m.get_mut(nick) {
             None => {
-                m.insert(nick.to_string(), Presence::Active(1));
-                JoinKind::Fresh
+                m.insert(
+                    nick.to_string(),
+                    Presence::Active {
+                        uuid: uuid.unwrap_or("").to_string(),
+                        count: 1,
+                    },
+                );
+                Some(JoinKind::Fresh)
             }
-            Some(Presence::Active(n)) => {
-                *n += 1;
-                JoinKind::Additional
+            Some(Presence::Active { uuid: held, count }) => {
+                if let Some(u) = uuid {
+                    if held.as_str() != u {
+                        return None;
+                    }
+                }
+                *count += 1;
+                Some(JoinKind::Additional)
             }
             Some(slot) => {
-                let prior = std::mem::replace(slot, Presence::Active(1));
-                if let Presence::Grace(cancel) = prior {
+                let held: String = match slot {
+                    Presence::Grace { uuid: h, .. } => h.clone(),
+                    _ => unreachable!(),
+                };
+                if let Some(u) = uuid {
+                    if held.as_str() != u {
+                        return None;
+                    }
+                }
+                let new_uuid = uuid.map(String::from).unwrap_or(held);
+                let prior = std::mem::replace(
+                    slot,
+                    Presence::Active {
+                        uuid: new_uuid,
+                        count: 1,
+                    },
+                );
+                if let Presence::Grace { cancel, .. } = prior {
                     let _ = cancel.send(());
                 }
-                JoinKind::Resumed
+                Some(JoinKind::Resumed)
             }
         }
     }
@@ -104,13 +174,14 @@ impl AppState {
     pub fn leave_member(&self, nick: &str) -> Option<oneshot::Receiver<()>> {
         let mut m = self.members.lock().unwrap();
         match m.get_mut(nick) {
-            Some(Presence::Active(n)) if *n > 1 => {
-                *n -= 1;
+            Some(Presence::Active { count, .. }) if *count > 1 => {
+                *count -= 1;
                 None
             }
-            Some(Presence::Active(_)) => {
+            Some(Presence::Active { uuid, .. }) => {
+                let uuid = uuid.clone();
                 let (tx, rx) = oneshot::channel();
-                m.insert(nick.to_string(), Presence::Grace(tx));
+                m.insert(nick.to_string(), Presence::Grace { uuid, cancel: tx });
                 Some(rx)
             }
             _ => None,
@@ -121,7 +192,7 @@ impl AppState {
     /// if we actually removed the nick (i.e. it was still in Grace).
     pub fn finalize_leave(&self, nick: &str) -> bool {
         let mut m = self.members.lock().unwrap();
-        if matches!(m.get(nick), Some(Presence::Grace(_))) {
+        if matches!(m.get(nick), Some(Presence::Grace { .. })) {
             m.remove(nick);
             true
         } else {
