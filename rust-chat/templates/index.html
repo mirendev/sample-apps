@@ -271,6 +271,13 @@
   }
   footer b { color: var(--topaz-300); font-weight: 500; }
   footer code { font-family: var(--font-mono); color: var(--text-dim); }
+  footer a {
+    color: var(--topaz-300);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 120ms ease;
+  }
+  footer a:hover { border-color: var(--topaz-300); }
 </style>
 </head>
 <body>
@@ -330,7 +337,7 @@
   </div>
   <footer>
     <span><b>Enjoy the Deploy</b></span>
-    <code>__VERSION__</code>
+    <code><a href="https://github.com/mirendev/sample-apps/tree/main/rust-chat" target="_blank" rel="noopener">source</a> · __VERSION__</code>
   </footer>
 </main>
 <script>
