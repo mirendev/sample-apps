@@ -18,6 +18,7 @@ use nick::seed_counter;
 use state::{AppState, HistoryStore, ServerMessage};
 
 const PAGE_TEMPLATE: &str = include_str!("../templates/index.html");
+const FAVICON_SVG: &str = include_str!("../templates/favicon.svg");
 
 #[tokio::main]
 async fn main() {
@@ -44,6 +45,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(index))
+        .route("/favicon.svg", get(favicon))
         .route("/ws", get(ws_handler))
         .route("/health", get(|| async { "ok\n" }))
         .with_state(state);
@@ -102,6 +104,10 @@ async fn shutdown_signal() {
 
 async fn index(State(state): State<Arc<AppState>>) -> Html<String> {
     Html(state.page.clone())
+}
+
+async fn favicon() -> impl IntoResponse {
+    ([("content-type", "image/svg+xml")], FAVICON_SVG)
 }
 
 async fn ws_handler(
