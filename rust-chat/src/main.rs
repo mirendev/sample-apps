@@ -12,7 +12,7 @@ use axum::response::{Html, IntoResponse};
 use axum::routing::get;
 use axum::Router;
 use tokio::sync::broadcast;
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 use nick::seed_counter;
 use state::{AppState, HistoryStore, ServerMessage};
@@ -21,11 +21,7 @@ const PAGE_TEMPLATE: &str = include_str!("../templates/index.html");
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
+    init_tracing();
 
     let port = env::var("PORT").unwrap_or_else(|_| "3000".to_string());
     let title = env::var("ROOM_TITLE").unwrap_or_else(|_| "rust-chat".to_string());
@@ -56,6 +52,26 @@ async fn main() {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .unwrap();
+}
+
+fn init_tracing() {
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")));
+
+    let console_layer = env::var("TOKIO_CONSOLE").ok().map(|_| {
+        console_subscriber::ConsoleLayer::builder()
+            .server_addr(std::net::SocketAddr::from(([0, 0, 0, 0], 6669)))
+            .spawn()
+    });
+
+    tracing_subscriber::registry()
+        .with(console_layer)
+        .with(fmt_layer)
+        .init();
+
+    if env::var("TOKIO_CONSOLE").is_ok() {
+        tracing::info!("tokio-console enabled on 0.0.0.0:6669");
+    }
 }
 
 async fn shutdown_signal() {

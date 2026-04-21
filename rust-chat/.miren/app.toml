@@ -1,7 +1,28 @@
 name = 'rust-chat'
 post_import = ''
-env = []
+env = [
+    { key = "TOKIO_CONSOLE", value = "1" },
+    { key = "ROOM_TITLE", value = "crabby-chatty" },
+]
 include = []
+
+# tokio-console gRPC endpoint. The app listens on container port 6669; Miren's
+# NAT exposes it externally on 30669, which falls inside the node-port firewall
+# range (30000-32767) already opened for the cluster.
+[[services.web.ports]]
+port = 6669
+name = "console"
+type = "tcp"
+node_port = 30669
+
+# Pin the sandbox to the coordinator. NodePort NAT is wired per-node, and a
+# runner-hosted sandbox is unreachable via the cluster hostname
+# (https://linear.app/miren/issue/MIR-1032). Any disk declaration pins the app
+# to the coordinator, so we use a no-op local disk purely for placement.
+[[services.web.disks]]
+name = "coordinator-pin"
+provider = "local"
+mount_path = "/miren/data/local"
 
 # Uncomment to provision managed Valkey; rust-chat's HistoryStore detects
 # REDIS_URL and switches from in-memory to persistent history.
