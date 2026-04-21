@@ -2,14 +2,15 @@ use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::sync::atomic::AtomicU64;
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use redis::{aio::MultiplexedConnection, AsyncCommands};
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, oneshot};
 
 const HISTORY_CAP: usize = 200;
 const HISTORY_KEY: &str = "chat:history";
+pub const GRACE_PERIOD: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct HistoryEntry {
@@ -48,27 +49,83 @@ pub enum ClientMessage {
     Send { text: String },
 }
 
+pub enum Presence {
+    /// One or more live sessions share this nick.
+    Active(u32),
+    /// No live sessions, but we're holding the seat for up to `GRACE_PERIOD`
+    /// so a flaky reconnect resumes silently. Firing the oneshot cancels the
+    /// pending cleanup.
+    Grace(oneshot::Sender<()>),
+}
+
+pub enum JoinKind {
+    /// Nick is new to the room — caller should broadcast Join.
+    Fresh,
+    /// Nick was in grace; we cancelled cleanup and resumed. No broadcast.
+    Resumed,
+    /// Another session already holds this nick (multi-tab). No broadcast.
+    Additional,
+}
+
 pub struct AppState {
     pub tx: broadcast::Sender<ServerMessage>,
     pub nick_counter: AtomicU64,
     pub page: String,
     pub history: HistoryStore,
-    pub members: Mutex<HashMap<String, u32>>,
+    pub members: Mutex<HashMap<String, Presence>>,
 }
 
 impl AppState {
-    pub fn add_member(&self, nick: &str) {
+    pub fn join_member(&self, nick: &str) -> JoinKind {
         let mut m = self.members.lock().unwrap();
-        *m.entry(nick.to_string()).or_insert(0) += 1;
+        match m.get_mut(nick) {
+            None => {
+                m.insert(nick.to_string(), Presence::Active(1));
+                JoinKind::Fresh
+            }
+            Some(Presence::Active(n)) => {
+                *n += 1;
+                JoinKind::Additional
+            }
+            Some(slot) => {
+                let prior = std::mem::replace(slot, Presence::Active(1));
+                if let Presence::Grace(cancel) = prior {
+                    let _ = cancel.send(());
+                }
+                JoinKind::Resumed
+            }
+        }
     }
 
-    pub fn remove_member(&self, nick: &str) {
+    /// Called when a session ends. Returns `Some(rx)` iff this was the last
+    /// active session for `nick` and we've transitioned to Grace — the caller
+    /// should spawn a cleanup task that awaits either `rx` (resume) or the
+    /// grace timeout.
+    pub fn leave_member(&self, nick: &str) -> Option<oneshot::Receiver<()>> {
         let mut m = self.members.lock().unwrap();
-        if let Some(c) = m.get_mut(nick) {
-            *c = c.saturating_sub(1);
-            if *c == 0 {
-                m.remove(nick);
+        match m.get_mut(nick) {
+            Some(Presence::Active(n)) if *n > 1 => {
+                *n -= 1;
+                None
             }
+            Some(Presence::Active(_)) => {
+                let (tx, rx) = oneshot::channel();
+                m.insert(nick.to_string(), Presence::Grace(tx));
+                Some(rx)
+            }
+            _ => None,
+        }
+    }
+
+    /// Called by the grace cleanup task when the timeout wins. Returns true
+    /// if we actually removed the nick (i.e. it was still in Grace).
+    pub fn finalize_leave(&self, nick: &str) -> bool {
+        let mut m = self.members.lock().unwrap();
+        if matches!(m.get(nick), Some(Presence::Grace(_))) {
+            m.remove(nick);
+            true
+        } else {
+            false
         }
     }
 

@@ -8,7 +8,9 @@ use futures_util::{
 };
 
 use crate::nick::{pick_nick, valid_nick};
-use crate::state::{now_ms, AppState, ClientMessage, HistoryEntry, ServerMessage};
+use crate::state::{
+    now_ms, AppState, ClientMessage, HistoryEntry, JoinKind, ServerMessage, GRACE_PERIOD,
+};
 
 pub async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let (mut sender, mut receiver) = socket.split();
@@ -20,11 +22,16 @@ pub async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     };
 
     let mut rx = state.tx.subscribe();
-    state.add_member(&nick);
+    let join_kind = state.join_member(&nick);
     let members = state.member_list();
     let history = state.history.list().await;
 
-    tracing::info!(%nick, members = members.len(), "session start");
+    tracing::info!(
+        %nick,
+        members = members.len(),
+        resumed = matches!(join_kind, JoinKind::Resumed),
+        "session start"
+    );
 
     // Greet just this client, including any backlog
     let welcome = ServerMessage::Welcome {
@@ -33,15 +40,18 @@ pub async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
         history,
     };
     if send_msg(&mut sender, &welcome).await.is_err() {
-        state.remove_member(&nick);
+        end_session(&state, &nick).await;
         return;
     }
 
-    // Announce to everyone else
-    let _ = state.tx.send(ServerMessage::Join {
-        nick: nick.clone(),
-        members,
-    });
+    // Announce to everyone else only when the room hasn't already seen this
+    // nick (fresh join, not a resume or additional tab).
+    if matches!(join_kind, JoinKind::Fresh) {
+        let _ = state.tx.send(ServerMessage::Join {
+            nick: nick.clone(),
+            members,
+        });
+    }
 
     // Forward broadcasts to this client; also heartbeat with Ping every 30s
     let mut send_task = tokio::spawn(async move {
@@ -103,10 +113,37 @@ pub async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
         _ = (&mut recv_task) => send_task.abort(),
     }
 
-    state.remove_member(&nick);
-    let members = state.member_list();
-    tracing::info!(%nick, members = members.len(), "session end");
-    let _ = state.tx.send(ServerMessage::Leave { nick, members });
+    end_session(&state, &nick).await;
+}
+
+/// Hand the nick back to presence tracking. If this was the last active
+/// session for `nick`, `leave_member` flips it to Grace and hands us a
+/// receiver; we spawn a cleanup task that either resumes silently (cancel
+/// fires first) or broadcasts Leave when the grace period elapses.
+async fn end_session(state: &Arc<AppState>, nick: &str) {
+    let Some(cancel_rx) = state.leave_member(nick) else {
+        tracing::info!(%nick, "session end (other tabs still connected)");
+        return;
+    };
+
+    tracing::info!(%nick, grace_secs = GRACE_PERIOD.as_secs(), "session end, grace started");
+
+    let state = state.clone();
+    let nick = nick.to_string();
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = cancel_rx => {
+                tracing::info!(%nick, "grace cancelled by resume");
+            }
+            _ = tokio::time::sleep(GRACE_PERIOD) => {
+                if state.finalize_leave(&nick) {
+                    let members = state.member_list();
+                    tracing::info!(%nick, "grace expired, announcing leave");
+                    let _ = state.tx.send(ServerMessage::Leave { nick, members });
+                }
+            }
+        }
+    });
 }
 
 /// Wait up to 2 seconds for the client's Hello so we can honor a persisted
