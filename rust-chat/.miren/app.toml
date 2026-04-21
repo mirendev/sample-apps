@@ -24,7 +24,7 @@ name = "coordinator-pin"
 provider = "local"
 mount_path = "/miren/data/local"
 
-# Managed Valkey; rust-chat's HistoryStore detects REDIS_URL and switches
-# from in-memory to persistent history so chat survives deploys.
-[addons.miren-valkey]
-variant = "small"
+# Uncomment to provision managed Valkey; rust-chat's HistoryStore detects
+# REDIS_URL and switches from in-memory to persistent history.
+# [addons.miren-valkey]
+# variant = "small"
