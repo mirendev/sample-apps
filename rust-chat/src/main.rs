@@ -26,7 +26,10 @@ async fn main() {
     let port = env::var("PORT").unwrap_or_else(|_| "3000".to_string());
     let title = env::var("ROOM_TITLE").unwrap_or_else(|_| "rust-chat".to_string());
     let welcome = env::var("WELCOME_MESSAGE")
-        .unwrap_or_else(|_| "A Rust + tokio + axum app running on Miren.".to_string());
+        .unwrap_or_else(|_| {
+            r#"A Rust + Tokio + axum app running on <a href="https://miren.dev" target="_blank" rel="noopener">Miren</a>."#
+                .to_string()
+        });
     let accent = env::var("ACCENT_COLOR").unwrap_or_else(|_| "#F6834B".to_string());
     let version = env::var("MIREN_VERSION").unwrap_or_else(|_| "dev".to_string());
 
