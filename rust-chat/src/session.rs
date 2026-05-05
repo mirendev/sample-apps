@@ -6,6 +6,7 @@ use futures_util::{
     sink::SinkExt,
     stream::{SplitSink, SplitStream, StreamExt},
 };
+use rustrict::CensorStr;
 
 use crate::nick::{pick_nick, valid_nick};
 use crate::state::{
@@ -105,7 +106,7 @@ pub async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                         }
                         let entry = HistoryEntry {
                             nick: nick_for_recv.clone(),
-                            text: trimmed.to_string(),
+                            text: trimmed.censor(),
                             ts: now_ms(),
                         };
                         state_for_recv.history.push(&entry).await;
