@@ -1,0 +1,19 @@
+; Godot 4 project. Open this folder in the Godot editor and press F5 to run.
+; The whole scene is built in code (main.gd) so there are no fragile .tscn UIDs.
+
+config_version=5
+
+[application]
+
+config/name="Rhythm Party"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.4")
+config/icon="res://icon.svg"
+
+[display]
+
+; Portrait, phone-ish. This is the eventual web-export / QR target shape.
+window/size/viewport_width=720
+window/size/viewport_height=1280
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep"
