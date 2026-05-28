@@ -19,6 +19,7 @@ const SPAWN_Y := -60.0
 const LANE_X := W * 0.5
 const NOTE_R := 38.0
 const RING_R := 78.0
+const APPROACH_GROW := 150.0 # how far out the contracting beat ring starts
 const TITLE_RING_Y := 620.0
 
 var active := false
@@ -91,7 +92,7 @@ func _process(delta: float) -> void:
 
 		_notes = _notes.filter(func(n): return not (n["judged"] and ab - n["beat"] > 1.0))
 
-	_pulse = maxf(0.0, _pulse - delta * 3.5)
+	_pulse = maxf(0.0, _pulse - delta * 5.0)
 	if _judgment_ttl > 0.0:
 		_judgment_ttl -= delta
 		if _judgment_ttl <= 0.0:
@@ -116,24 +117,16 @@ func _flash(text: String) -> void:
 
 func _draw() -> void:
 	draw_rect(Rect2(0, 0, W, H), Look.BG)
+	var ab := _conductor.total_beats()
 
 	if not active:
-		# A lone beat ring, pulsing, so the room's beat is visible before you join.
-		var c := Vector2(LANE_X, TITLE_RING_Y)
-		draw_arc(c, RING_R, 0, TAU, 64, Look.DIM, 4.0)
-		if _pulse > 0.0:
-			draw_arc(c, RING_R + _pulse * 46.0, 0, TAU, 64, Color(Look.ACCENT, _pulse), 6.0)
+		_draw_beat_ring(Vector2(LANE_X, TITLE_RING_Y), ab)
 		return
 
 	draw_line(Vector2(LANE_X, 0), Vector2(LANE_X, H), Color(Look.DIM, 0.25), 2.0)
 	draw_line(Vector2(0, HIT_Y), Vector2(W, HIT_Y), Look.DIM, 3.0)
+	_draw_beat_ring(Vector2(LANE_X, HIT_Y), ab)
 
-	var hy := Vector2(LANE_X, HIT_Y)
-	draw_arc(hy, RING_R, 0, TAU, 64, Look.DIM, 4.0)
-	if _pulse > 0.0:
-		draw_arc(hy, RING_R + _pulse * 46.0, 0, TAU, 64, Color(Look.ACCENT, _pulse), 6.0)
-
-	var ab := _conductor.total_beats()
 	for n in _notes:
 		if n["judged"]:
 			continue
@@ -143,3 +136,15 @@ func _draw() -> void:
 		var y := lerpf(SPAWN_Y, HIT_Y, 1.0 - rel / APPROACH_BEATS)
 		draw_circle(Vector2(LANE_X, y), NOTE_R, Look.NOTE)
 		draw_arc(Vector2(LANE_X, y), NOTE_R, 0, TAU, 32, Color(Look.ACCENT, 0.6), 3.0)
+
+# A ring that contracts to meet the target exactly on the beat, plus a bright
+# pop on the beat itself — a precise "the beat is NOW" marker, handy for tuning
+# the audio offset by eye against what you hear.
+func _draw_beat_ring(center: Vector2, ab: float) -> void:
+	var to_next := 1.0 - fposmod(ab, 1.0)        # 1 just after a beat, 0 at the next
+	var ar := RING_R + to_next * APPROACH_GROW
+	var a := 0.2 + 0.6 * (1.0 - to_next)         # brighter as it closes in
+	draw_arc(center, ar, 0, TAU, 72, Color(Look.ACCENT, a), 5.0)
+	draw_arc(center, RING_R, 0, TAU, 72, Look.DIM, 4.0)
+	if _pulse > 0.0:
+		draw_circle(center, RING_R, Color(Look.ACCENT, _pulse * 0.6))

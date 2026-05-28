@@ -27,7 +27,9 @@ const LEAD_IN_BEATS := 4.0
 ## Audio is heard a little after its logical position (output latency, plus any
 ## track lead-in). This shifts the visual/judging clock to match what you hear,
 ## without moving the audio itself. Positive = compensate for later audio.
-var audio_offset_ms := 0.0
+## Default hand-tuned on a Mac/Chrome setup; per-device calibration is step 5.
+## Tunable live with [ and ].
+var audio_offset_ms := 26.0
 
 var _running := false
 var _start_sec := 0.0

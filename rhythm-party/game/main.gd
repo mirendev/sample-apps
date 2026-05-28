@@ -26,8 +26,6 @@ func _ready() -> void:
 	conductor = Conductor.new()
 	add_child(conductor)
 	conductor.start()
-	# Seed from the platform's reported output latency; tune live with [ and ].
-	conductor.audio_offset_ms = AudioServer.get_output_latency() * 1000.0
 
 	music = MusicSync.new()
 	music.setup(conductor)
