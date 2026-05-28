@@ -17,6 +17,7 @@ import (
 	"embed"
 	"io/fs"
 	"log"
+	"math"
 	"mime"
 	"net/http"
 	"os"
@@ -40,6 +41,14 @@ const (
 	songLenMs     = int64(212903)        // 440 beats — integer loop so notes lock to the music
 )
 
+// Room energy: every hit bumps it, and it decays each broadcast tick, so the
+// meter rides high while the room is hitting and fades when things go quiet.
+const (
+	tickInterval = 150 * time.Millisecond
+	hitBump      = 0.12 // energy added per hit
+	energyDecay  = 0.92 // multiplicative decay per tick
+)
+
 func nowMs() int64 { return time.Now().UnixMilli() }
 
 func main() {
@@ -51,7 +60,7 @@ func main() {
 	}
 
 	h := newHub()
-	go h.tickPresence(3 * time.Second)
+	go h.run()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -90,6 +99,7 @@ func (c *client) trySend(v any) {
 type hub struct {
 	mu      sync.Mutex
 	clients map[*client]struct{}
+	energy  float64
 }
 
 func newHub() *hub { return &hub{clients: map[*client]struct{}{}} }
@@ -106,25 +116,35 @@ func (h *hub) remove(c *client) {
 	h.mu.Unlock()
 }
 
-func (h *hub) broadcast(v any) {
+func (h *hub) addEnergy(d float64) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	h.energy = math.Min(1.0, h.energy+d)
+	h.mu.Unlock()
+}
+
+// broadcastParty pushes the current head count and room energy to everyone.
+func (h *hub) broadcastParty() {
+	h.mu.Lock()
+	msg := partyMsg{T: "party", Online: len(h.clients), Energy: h.energy}
 	for c := range h.clients {
-		c.trySend(v)
+		c.trySend(msg)
 	}
+	h.mu.Unlock()
 }
 
-func (h *hub) count() int {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return len(h.clients)
-}
-
-func (h *hub) tickPresence(every time.Duration) {
-	t := time.NewTicker(every)
+// run decays energy on a fixed tick and pushes the party update out, so the
+// meter is live for everyone even between hits.
+func (h *hub) run() {
+	t := time.NewTicker(tickInterval)
 	defer t.Stop()
 	for range t.C {
-		h.broadcast(partyMsg{T: "party", Online: h.count()})
+		h.mu.Lock()
+		h.energy *= energyDecay
+		if h.energy < 0.001 {
+			h.energy = 0
+		}
+		h.mu.Unlock()
+		h.broadcastParty()
 	}
 }
 
@@ -150,8 +170,9 @@ type syncMsg struct {
 }
 
 type partyMsg struct {
-	T      string `json:"t"` // "party"
-	Online int    `json:"online"`
+	T      string  `json:"t"` // "party"
+	Online int     `json:"online"`
+	Energy float64 `json:"energy"` // room hit energy, 0..1
 }
 
 // --- websocket --------------------------------------------------------------
@@ -170,12 +191,12 @@ func (h *hub) serveWS(w http.ResponseWriter, r *http.Request) {
 	h.add(c)
 	defer func() {
 		h.remove(c)
-		h.broadcast(partyMsg{T: "party", Online: h.count()})
+		h.broadcastParty()
 	}()
 
 	// Greet with the shared musical frame and the current head count.
 	c.trySend(syncMsg{T: "sync", Epoch: anchorEpochMs, BPM: bpm, LoopBeats: loopBeats, SongMs: songLenMs})
-	h.broadcast(partyMsg{T: "party", Online: h.count()})
+	h.broadcastParty()
 
 	// Writer goroutine: the only place we touch conn.Write.
 	go func() {
@@ -205,7 +226,7 @@ func (h *hub) serveWS(w http.ResponseWriter, r *http.Request) {
 		case "ping":
 			c.trySend(pongMsg{T: "pong", C: m.C, S: nowMs()})
 		case "hit":
-			// step 4: aggregate into a room-wide combo/energy meter.
+			h.addEnergy(hitBump)
 		}
 	}
 }

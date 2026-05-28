@@ -8,6 +8,7 @@ extends Control
 const W := 720.0
 const H := 1280.0
 const HIT_Y := 980.0
+const BAR_W := W - 80.0 # room-energy meter width
 
 var _titling := true
 var _blink := 0.0
@@ -22,6 +23,8 @@ var _judgment: Label
 var _hint: Label
 var _credit: Label
 var _offset: Label
+var _energy_bg: ColorRect
+var _energy_fill: ColorRect
 
 func _ready() -> void:
 	_header = _label(Vector2(0, 56), 44, "RHYTHM PARTY", Look.ACCENT)
@@ -43,6 +46,19 @@ func _ready() -> void:
 	_credit = _label(Vector2(0, H - 40), 15,
 		"Music: \"Brain Dance\" by Kevin MacLeod (incompetech.com), CC BY 4.0", Look.DIM)
 	_offset = _label(Vector2(0, H - 108), 15, "", Look.DIM)
+
+	# Room-energy meter: a thin strip across the very top that fills as the room
+	# hits. Lives above everything else so it never collides with score/notes.
+	_energy_bg = ColorRect.new()
+	add_child(_energy_bg)
+	_energy_bg.position = Vector2(40, 14)
+	_energy_bg.size = Vector2(BAR_W, 8)
+	_energy_bg.color = Color(Look.DIM, 0.5)
+	_energy_fill = ColorRect.new()
+	add_child(_energy_fill)
+	_energy_fill.position = Vector2(40, 14)
+	_energy_fill.size = Vector2(0, 8)
+	_energy_fill.color = Look.ACCENT
 
 	set_title_mode(true)
 
@@ -69,6 +85,9 @@ func set_party(is_synced: bool, online: int, connecting: bool) -> void:
 
 func set_offset_readout(ms: float) -> void:
 	_offset.text = "audio offset %d ms  ( [ / ] )" % int(round(ms))
+
+func set_energy(e: float) -> void:
+	_energy_fill.size = Vector2(clampf(e, 0.0, 1.0) * BAR_W, 8.0)
 
 func set_play_stats(score: int, combo: int, judgment: String) -> void:
 	_score.text = "%d" % score

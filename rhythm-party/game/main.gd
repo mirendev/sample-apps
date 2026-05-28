@@ -19,6 +19,7 @@ var field: NoteField
 var hud: Hud
 
 var online := 0
+var room_energy := 0.0
 var is_synced := false
 var _net_grace := 0.0 # seconds since boot, for the "solo (offline)" fallback
 
@@ -45,11 +46,12 @@ func _ready() -> void:
 	add_child(net)
 	net.synced.connect(_on_synced)
 	net.offset_updated.connect(func(o): conductor.set_offset(o))
-	net.party.connect(func(n): online = n)
+	net.party.connect(_on_party)
 
 func _process(delta: float) -> void:
 	_net_grace += delta
 	hud.set_party(is_synced, online, _net_grace < 3.0)
+	hud.set_energy(room_energy)
 	hud.set_offset_readout(conductor.audio_offset_ms)
 	if state == State.PLAYING:
 		hud.set_play_stats(field.score, field.combo, field.judgment)
@@ -62,6 +64,10 @@ func _on_synced(epoch: float, bpm: float, loop: int, offset: float, song_ms: flo
 func _on_field_hit() -> void:
 	if net:
 		net.send_hit()
+
+func _on_party(n: int, e: float) -> void:
+	online = n
+	room_energy = e
 
 func _unhandled_input(event: InputEvent) -> void:
 	# Live audio-offset calibration: [ earlier, ] later.

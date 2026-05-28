@@ -11,7 +11,7 @@ extends Node
 
 signal synced(epoch: float, bpm: float, loop: int, offset: float, song_ms: float)
 signal offset_updated(offset_ms: float)
-signal party(online: int)
+signal party(online: int, energy: float)
 
 const PING_INTERVAL_SEC := 2.0
 
@@ -78,7 +78,7 @@ func _handle(text: String) -> void:
 		"pong":
 			_absorb_pong(float(msg.get("c", 0.0)), float(msg.get("s", 0.0)))
 		"party":
-			party.emit(int(msg.get("online", 0)))
+			party.emit(int(msg.get("online", 0)), float(msg.get("energy", 0.0)))
 
 func _absorb_pong(c: float, s: float) -> void:
 	var now := _local_ms()
