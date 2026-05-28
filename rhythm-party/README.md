@@ -49,9 +49,9 @@ We front-load the risky questions ("is it fun?", "does web export behave?")
 ahead of the multiplayer, which is low-risk precisely because it's clock-sync,
 not netcode.
 
-1. **Offline client** — loop, tap, score locally. ← *you are here*
-2. **Web export, hosted static on Miren** — prove it's QR-joinable, no install.
-3. **WebSocket + clock sync** — two phones landing on the same downbeat.
+1. **Offline client** — loop, tap, score locally. ✓ done
+2. **Web export, hosted static on Miren** — QR-joinable, no install. ✓ done, live at https://rhythm.miren.toys
+3. **WebSocket + clock sync** — two phones landing on the same downbeat. ← *you are here*
 4. **Ambient multiplayer** — live party count, room combo, shared visualizer.
 5. **Calibration + juice** — tap-to-calibrate on join, polish the feel.
 
@@ -88,6 +88,31 @@ using the templates from `godot-export-templates-bin` (exposed as
 `$GODOT_EXPORT_TEMPLATES`). That's how we'll produce the static files the Miren
 conductor serves.
 
+## Deploying to Miren
+
+The conductor is a tiny Go server that embeds the web export and serves it (plus
+`/health`). The whole app is one `miren deploy`. From `rhythm-party/`:
+
+```sh
+# 1. (re)build the web export into conductor/static/
+godot --headless --path game --export-release "Web" conductor/static/index.html
+
+# 2. deploy the conductor (the Go buildpack embeds static/ at build time)
+miren deploy -C toys -d conductor
+
+# 3. point a hostname at it (first time only)
+miren route set rhythm.miren.toys rhythm-party -C toys
+```
+
+`conductor/static/` is a ~43MB build artifact, so it's `.gitignored`. But Miren
+honors `.gitignore` when bundling a deploy, so `.miren/app.toml` carries
+`include = ["static"]` to force it back into the build context. That's the knob:
+gitignore the blob, re-include it for the deploy.
+
+One gotcha worth knowing: a stale `miren` client (pre-#803 / MIR-1135) uploads
+this ~43MB at a crawl. Keep your client recent — the batching fix turns a
+40-minute upload into a sub-second one.
+
 ## Layout
 
 ```
@@ -97,6 +122,11 @@ rhythm-party/
     main.tscn        one node, script-attached; the tree is built in code
     main.gd          gameplay, scoring, drawing
     conductor.gd     the beat clock — the one seam the network plugs into
+    export_presets.cfg  the headless "Web" export preset
     icon.svg
-  conductor/         the WebSocket + Valkey backend  (coming in step 3)
+  conductor/         Go server that hosts the export (WebSocket + Valkey land here in step 3)
+    main.go          embeds and serves static/; /health; optional COOP/COEP
+    Procfile         web: /bin/app
+    .miren/app.toml  app name + include = ["static"]
+    static/          Godot web export — .gitignored, force-included via app.toml
 ```

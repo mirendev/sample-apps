@@ -1,0 +1,5 @@
+# The Godot web export is a build artifact, regenerated from ../game with:
+#   godot --headless --path ../game --export-release "Web" static/index.html
+# Kept out of git (it's ~43MB of wasm), but force-included in the deploy
+# bundle via `include = ["static"]` in .miren/app.toml so the Go embed builds.
+static/

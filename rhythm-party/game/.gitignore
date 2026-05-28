@@ -1,6 +1,5 @@
 # Godot 4 editor/import cache — regenerated on open.
 .godot/
 
-# Export artifacts.
+# Export artifacts (export_presets.cfg IS tracked — it defines the Web preset).
 /build/
-export_presets.cfg

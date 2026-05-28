@@ -1,0 +1,6 @@
+name = 'rhythm-party'
+
+# The web export lives in static/ but is .gitignored (it's a 43MB build
+# artifact). Force it into the deploy build context anyway so the Go embed
+# can pick it up.
+include = ["static"]
