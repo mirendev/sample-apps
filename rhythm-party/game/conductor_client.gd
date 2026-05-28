@@ -9,7 +9,7 @@ extends Node
 ## Gameplay never flows through here — only timing and ambient room state. If the
 ## socket never opens, nothing breaks: the Conductor just stays in solo mode.
 
-signal synced(epoch_ms: float, server_bpm: float, server_loop_beats: int, offset_ms: float)
+signal synced(epoch: float, bpm: float, loop: int, offset: float, song_ms: float)
 signal offset_updated(offset_ms: float)
 signal party(online: int)
 
@@ -23,8 +23,9 @@ var _best_rtt := INF
 var _offset_ms := 0.0
 var _ping_accum := 0.0
 var _epoch_ms := 0.0
-var _server_bpm := 110.0
+var _server_bpm := 124.0
 var _server_loop := 8
+var _song_ms := 0.0
 
 func _ready() -> void:
 	var url := _conductor_url()
@@ -69,6 +70,7 @@ func _handle(text: String) -> void:
 			_epoch_ms = float(msg.get("epoch", 0.0))
 			_server_bpm = float(msg.get("bpm", _server_bpm))
 			_server_loop = int(msg.get("loop_beats", _server_loop))
+			_song_ms = float(msg.get("song_ms", 0.0))
 			_have_frame = true
 			_maybe_emit_synced()
 		"pong":
@@ -94,7 +96,7 @@ func _maybe_emit_synced() -> void:
 		return
 	if _have_frame and _best_rtt < INF:
 		_emitted_synced = true
-		synced.emit(_epoch_ms, _server_bpm, _server_loop, _offset_ms)
+		synced.emit(_epoch_ms, _server_bpm, _server_loop, _offset_ms, _song_ms)
 
 func _conductor_url() -> String:
 	# In a web export, talk to whatever host served the page (same origin).

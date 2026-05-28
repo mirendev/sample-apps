@@ -55,8 +55,12 @@ not netcode.
 4. **Ambient multiplayer** — room-wide energy/combo meter, shared visualizer (and managed Valkey for cross-instance stats). ← *you are here*
 5. **Calibration + juice** — tap-to-calibrate on join, polish the feel.
 
-In between 1 and 2 there's a **1.5: real audio**, anchoring the beat clock to an
-actual looping track instead of the bare engine clock.
+**1.5: real audio** ✓ done — a title card (which also satisfies the browser's
+"resume audio on a gesture" rule) starts "Brain Dance" by Kevin MacLeod, seeked
+to the shared song position so the whole room hears the same moment, with drift
+correction. The ~444.1-beat track isn't an integer loop, so the once-per-3.5min
+loop seam lands slightly off the beat; a booth play is shorter than one loop, so
+it rarely shows. (Fix later: trim the loop to an integer beat count.)
 
 ## Running step 1
 
@@ -120,10 +124,11 @@ rhythm-party/
   game/              Godot project (the client)
     project.godot
     main.tscn        one node, script-attached; the tree is built in code
-    main.gd          gameplay, scoring, drawing
+    main.gd          title card, gameplay, scoring, audio sync, drawing
     conductor.gd     the beat clock — solo, or server-anchored once synced
     conductor_client.gd  WebSocket: clock-sync handshake + live party count
     export_presets.cfg   the headless "Web" export preset
+    assets/brain-dance.mp3   the track (CC BY 4.0 — see Credits)
     icon.svg
   conductor/         Go server: serves the export + /ws (clock sync, presence)
     main.go          static embed; /health; /ws hub + clock-sync; opt-in COOP/COEP
@@ -132,3 +137,9 @@ rhythm-party/
     .miren/app.toml  app name + include = ["static"]
     static/          Godot web export — .gitignored, force-included via app.toml
 ```
+
+## Credits
+
+Music: "Brain Dance" by Kevin MacLeod (incompetech.com), licensed under
+[Creative Commons: By Attribution 4.0](http://creativecommons.org/licenses/by/4.0/).
+The in-game title card and footer carry the same credit.

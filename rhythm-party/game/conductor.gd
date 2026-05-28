@@ -21,7 +21,7 @@ signal beat(loop_index: int) ## fires once per whole beat; loop_index is 0..beat
 ## ambushed at t=0 and the opening note has time to travel down the screen.
 const LEAD_IN_BEATS := 4.0
 
-@export var bpm: float = 110.0
+@export var bpm: float = 124.0
 @export var beats_per_loop: int = 8
 
 var _running := false
@@ -57,6 +57,14 @@ func apply_server_sync(epoch: float, new_bpm: float, loop: int, offset: float) -
 ## Refresh just the clock offset; later handshake samples correct for drift.
 func set_offset(offset_ms: float) -> void:
 	_offset_ms = offset_ms
+
+func is_synced() -> bool:
+	return _synced
+
+## Global server wall-clock in ms (local clock + measured offset). Used to keep
+## music playback aligned to the same song position for everyone.
+func server_now_ms() -> float:
+	return Time.get_unix_time_from_system() * 1000.0 + _offset_ms
 
 ## Absolute beats since "beat zero". When synced, derived from global server
 ## time; otherwise from the local solo clock (negative during the lead-in).

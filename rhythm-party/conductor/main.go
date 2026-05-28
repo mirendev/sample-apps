@@ -35,8 +35,9 @@ var staticFS embed.FS
 // this is the single source of truth for tempo and loop length.
 const (
 	anchorEpochMs = int64(1735689600000) // 2025-01-01T00:00:00Z, an arbitrary fixed downbeat
-	bpm           = 110.0
-	loopBeats     = 8
+	bpm           = 124.0                // "Brain Dance" by Kevin MacLeod
+	loopBeats     = 8                    // note ostinato repeats every 8 beats
+	songLenMs     = int64(214909)        // track length; clients loop the music here, synced
 )
 
 func nowMs() int64 { return time.Now().UnixMilli() }
@@ -145,6 +146,7 @@ type syncMsg struct {
 	Epoch     int64   `json:"epoch"`
 	BPM       float64 `json:"bpm"`
 	LoopBeats int     `json:"loop_beats"`
+	SongMs    int64   `json:"song_ms"` // music loop length; clients loop the track here
 }
 
 type partyMsg struct {
@@ -172,7 +174,7 @@ func (h *hub) serveWS(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Greet with the shared musical frame and the current head count.
-	c.trySend(syncMsg{T: "sync", Epoch: anchorEpochMs, BPM: bpm, LoopBeats: loopBeats})
+	c.trySend(syncMsg{T: "sync", Epoch: anchorEpochMs, BPM: bpm, LoopBeats: loopBeats, SongMs: songLenMs})
 	h.broadcast(partyMsg{T: "party", Online: h.count()})
 
 	// Writer goroutine: the only place we touch conn.Write.
