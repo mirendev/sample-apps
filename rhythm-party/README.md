@@ -58,9 +58,13 @@ not netcode.
 **1.5: real audio** ✓ done — a title card (which also satisfies the browser's
 "resume audio on a gesture" rule) starts "Brain Dance" by Kevin MacLeod, seeked
 to the shared song position so the whole room hears the same moment, with drift
-correction. The ~444.1-beat track isn't an integer loop, so the once-per-3.5min
-loop seam lands slightly off the beat; a booth play is shorter than one loop, so
-it rarely shows. (Fix later: trim the loop to an integer beat count.)
+correction. The track is trimmed to exactly **440 beats** (55 eight-beat phrases)
+so the loop is an integer number of beats — that's what keeps the note grid
+locked to the music. (An integer beat grid against a non-integer-beat loop drifts
+out of phase by an arbitrary, constant amount; that was the original "feels off"
+bug.) A tunable audio offset — seeded from the platform's output latency, live
+nudge with `[` and `]` — mops up the residual visual-vs-heard lag. A per-device
+tap-to-calibrate is step 5.
 
 ## Running step 1
 
@@ -124,11 +128,15 @@ rhythm-party/
   game/              Godot project (the client)
     project.godot
     main.tscn        one node, script-attached; the tree is built in code
-    main.gd          title card, gameplay, scoring, audio sync, drawing
+    main.gd          orchestrator: state, wiring, input routing
     conductor.gd     the beat clock — solo, or server-anchored once synced
     conductor_client.gd  WebSocket: clock-sync handshake + live party count
+    music_sync.gd    the track, pinned to the shared song position
+    note_field.gd    chart, scoring, and gameplay drawing
+    hud.gd           all on-screen text
+    look.gd          shared palette
     export_presets.cfg   the headless "Web" export preset
-    assets/brain-dance.mp3   the track (CC BY 4.0 — see Credits)
+    assets/brain-dance.ogg   trimmed to a 440-beat loop (CC BY 4.0 — see Credits)
     icon.svg
   conductor/         Go server: serves the export + /ws (clock sync, presence)
     main.go          static embed; /health; /ws hub + clock-sync; opt-in COOP/COEP

@@ -37,7 +37,7 @@ const (
 	anchorEpochMs = int64(1735689600000) // 2025-01-01T00:00:00Z, an arbitrary fixed downbeat
 	bpm           = 124.0                // "Brain Dance" by Kevin MacLeod
 	loopBeats     = 8                    // note ostinato repeats every 8 beats
-	songLenMs     = int64(214909)        // track length; clients loop the music here, synced
+	songLenMs     = int64(212903)        // 440 beats — integer loop so notes lock to the music
 )
 
 func nowMs() int64 { return time.Now().UnixMilli() }

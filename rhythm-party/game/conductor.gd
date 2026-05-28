@@ -24,6 +24,11 @@ const LEAD_IN_BEATS := 4.0
 @export var bpm: float = 124.0
 @export var beats_per_loop: int = 8
 
+## Audio is heard a little after its logical position (output latency, plus any
+## track lead-in). This shifts the visual/judging clock to match what you hear,
+## without moving the audio itself. Positive = compensate for later audio.
+var audio_offset_ms := 0.0
+
 var _running := false
 var _start_sec := 0.0
 var _last_whole_beat := -9999
@@ -69,12 +74,13 @@ func server_now_ms() -> float:
 ## Absolute beats since "beat zero". When synced, derived from global server
 ## time; otherwise from the local solo clock (negative during the lead-in).
 func total_beats() -> float:
+	var off := audio_offset_ms / 1000.0 / seconds_per_beat()
 	if _synced:
 		var server_now_ms := Time.get_unix_time_from_system() * 1000.0 + _offset_ms
-		return (server_now_ms - _epoch_ms) / 1000.0 / seconds_per_beat()
+		return (server_now_ms - _epoch_ms) / 1000.0 / seconds_per_beat() - off
 	if not _running:
 		return 0.0
-	return (_now() - _start_sec) / seconds_per_beat()
+	return (_now() - _start_sec) / seconds_per_beat() - off
 
 ## Position within the current loop, 0..beats_per_loop.
 func loop_beat() -> float:

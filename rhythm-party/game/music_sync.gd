@@ -9,7 +9,9 @@ extends Node
 ## begin(). A periodic drift check re-seeks if the audio clock wanders.
 
 const DRIFT_RESEEK_SEC := 0.12 # tolerated gap between audio and server song-position
-const TRACK := "res://assets/brain-dance.mp3"
+# Trimmed to exactly 440 beats (55 eight-beat phrases) so the loop is an integer
+# number of beats — that's what keeps notes locked to the music. See the README.
+const TRACK := "res://assets/brain-dance.ogg"
 
 var _conductor: Conductor
 var _player := AudioStreamPlayer.new()
@@ -24,7 +26,7 @@ func setup(conductor: Conductor) -> void:
 func _ready() -> void:
 	add_child(_player)
 	var stream := load(TRACK)
-	if stream is AudioStreamMP3:
+	if stream is AudioStreamOggVorbis:
 		stream.loop = true
 	_player.stream = stream
 

@@ -21,6 +21,7 @@ var _combo: Label
 var _judgment: Label
 var _hint: Label
 var _credit: Label
+var _offset: Label
 
 func _ready() -> void:
 	_header = _label(Vector2(0, 56), 44, "RHYTHM PARTY", Look.ACCENT)
@@ -41,6 +42,7 @@ func _ready() -> void:
 	_hint = _label(Vector2(0, H - 78), 20, "tap space / click / touch on the beat", Look.DIM)
 	_credit = _label(Vector2(0, H - 40), 15,
 		"♪ \"Brain Dance\" — Kevin MacLeod (incompetech.com) · CC BY 4.0", Look.DIM)
+	_offset = _label(Vector2(0, H - 108), 15, "", Look.DIM)
 
 	set_title_mode(true)
 
@@ -52,6 +54,7 @@ func set_title_mode(on: bool) -> void:
 	_combo.visible = not on
 	_judgment.visible = not on
 	_hint.visible = not on
+	_offset.visible = not on
 
 func set_party(is_synced: bool, online: int, connecting: bool) -> void:
 	if is_synced:
@@ -63,6 +66,9 @@ func set_party(is_synced: bool, online: int, connecting: bool) -> void:
 	else:
 		_party.text = "solo (offline)"
 		_party.modulate = Look.DIM
+
+func set_offset_readout(ms: float) -> void:
+	_offset.text = "audio offset %d ms  ( [ / ] )" % int(round(ms))
 
 func set_play_stats(score: int, combo: int, judgment: String) -> void:
 	_score.text = "%d" % score

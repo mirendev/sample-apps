@@ -26,6 +26,8 @@ func _ready() -> void:
 	conductor = Conductor.new()
 	add_child(conductor)
 	conductor.start()
+	# Seed from the platform's reported output latency; tune live with [ and ].
+	conductor.audio_offset_ms = AudioServer.get_output_latency() * 1000.0
 
 	music = MusicSync.new()
 	music.setup(conductor)
@@ -50,6 +52,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_net_grace += delta
 	hud.set_party(is_synced, online, _net_grace < 3.0)
+	hud.set_offset_readout(conductor.audio_offset_ms)
 	if state == State.PLAYING:
 		hud.set_play_stats(field.score, field.combo, field.judgment)
 
@@ -63,6 +66,14 @@ func _on_field_hit() -> void:
 		net.send_hit()
 
 func _unhandled_input(event: InputEvent) -> void:
+	# Live audio-offset calibration: [ earlier, ] later.
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_BRACKETLEFT:
+			conductor.audio_offset_ms -= 10.0
+			return
+		if event.keycode == KEY_BRACKETRIGHT:
+			conductor.audio_offset_ms += 10.0
+			return
 	if not _is_tap(event):
 		return
 	if state == State.TITLE:
