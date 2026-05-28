@@ -58,9 +58,8 @@ func judge() -> void:
 			best = n
 
 	if best.is_empty() or best_d > GOOD_WINDOW:
-		# A whiff. Party-friendly: it just resets the combo, no score penalty.
+		# A whiff. Party-friendly: just resets the combo, no penalty, no shout.
 		combo = 0
-		_flash("…")
 		return
 
 	best["judged"] = true

@@ -49,6 +49,8 @@ func _process(delta: float) -> void:
 				_ping_accum = 0.0
 				_send_ping()
 		WebSocketPeer.STATE_CLOSED:
+			if _connected:
+				print("[rhythm] ws CLOSED code=", _ws.get_close_code(), " reason=", _ws.get_close_reason())
 			_connected = false
 
 func send_hit() -> void:
@@ -100,13 +102,11 @@ func _maybe_emit_synced() -> void:
 
 func _conductor_url() -> String:
 	# In a web export, talk to whatever host served the page (same origin).
-	if OS.has_feature("web") and Engine.has_singleton("JavaScriptBridge"):
-		var js := Engine.get_singleton("JavaScriptBridge")
-		var proto := str(js.eval("location.protocol", true))
-		var host := str(js.eval("location.host", true))
-		if host.is_empty():
-			return ""
-		var scheme := "wss" if proto == "https:" else "ws"
-		return "%s://%s/ws" % [scheme, host]
+	if OS.has_feature("web"):
+		var proto := str(JavaScriptBridge.eval("location.protocol", true))
+		var host := str(JavaScriptBridge.eval("location.host", true))
+		if not host.is_empty():
+			var scheme := "wss" if proto == "https:" else "ws"
+			return "%s://%s/ws" % [scheme, host]
 	# Editor / desktop: talk to a locally-running conductor (no-op if absent).
 	return "ws://127.0.0.1:3000/ws"

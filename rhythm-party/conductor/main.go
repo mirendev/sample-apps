@@ -131,14 +131,14 @@ func (h *hub) tickPresence(every time.Duration) {
 // --- messages ---------------------------------------------------------------
 
 type clientMsg struct {
-	T string `json:"t"`           // "ping" | "hit"
-	C int64  `json:"c,omitempty"` // client send time (ms) for ping round-trip
+	T string  `json:"t"`           // "ping" | "hit"
+	C float64 `json:"c,omitempty"` // client send time (ms); float — JS clocks are sub-ms
 }
 
 type pongMsg struct {
-	T string `json:"t"` // "pong"
-	C int64  `json:"c"` // echoed client time
-	S int64  `json:"s"` // server now (ms)
+	T string  `json:"t"` // "pong"
+	C float64 `json:"c"` // echoed client time
+	S int64   `json:"s"` // server now (ms)
 }
 
 type syncMsg struct {

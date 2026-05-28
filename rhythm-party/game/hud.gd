@@ -33,7 +33,7 @@ func _ready() -> void:
 	_intro.text = ("Everyone here is playing the same track, on the same beat, "
 		+ "at the same time.\n\nTap the ring on the beat. Bop with the room.")
 
-	_start = _label(Vector2(0, 770), 34, "tap to start ▶", Look.ACCENT)
+	_start = _label(Vector2(0, 770), 34, "tap to start", Look.ACCENT)
 
 	_score = _label(Vector2(0, 150), 34, "", Color.WHITE)
 	_combo = _label(Vector2(0, 196), 26, "", Look.ACCENT)
@@ -41,7 +41,7 @@ func _ready() -> void:
 
 	_hint = _label(Vector2(0, H - 78), 20, "tap space / click / touch on the beat", Look.DIM)
 	_credit = _label(Vector2(0, H - 40), 15,
-		"♪ \"Brain Dance\" — Kevin MacLeod (incompetech.com) · CC BY 4.0", Look.DIM)
+		"Music: \"Brain Dance\" by Kevin MacLeod (incompetech.com), CC BY 4.0", Look.DIM)
 	_offset = _label(Vector2(0, H - 108), 15, "", Look.DIM)
 
 	set_title_mode(true)
@@ -58,10 +58,10 @@ func set_title_mode(on: bool) -> void:
 
 func set_party(is_synced: bool, online: int, connecting: bool) -> void:
 	if is_synced:
-		_party.text = "🎉 %d here · everyone on the same beat" % maxi(online, 1)
+		_party.text = "%d here, all on the same beat" % maxi(online, 1)
 		_party.modulate = Look.ACCENT
 	elif connecting:
-		_party.text = "connecting to the party…"
+		_party.text = "connecting to the party..."
 		_party.modulate = Look.DIM
 	else:
 		_party.text = "solo (offline)"
