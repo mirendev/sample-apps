@@ -31,6 +31,10 @@ const NOTE_COLOR := Color("#EDEDF2")
 var chart := [0.0, 2.0, 3.0, 4.0, 6.0, 7.0]
 
 var conductor: Conductor
+var net: ConductorClient
+var online := 0
+var is_synced := false
+
 var notes: Array = []        # each: { "beat": float (absolute), "judged": bool }
 var scheduled_until := -1    # highest loop index we've spawned notes for
 
@@ -47,6 +51,8 @@ var score_label: Label
 var combo_label: Label
 var judgment_label: Label
 var hint_label: Label
+
+var _net_grace := 0.0        # seconds since boot, for the "solo (offline)" fallback
 
 func _ready() -> void:
 	conductor = Conductor.new()
@@ -75,6 +81,14 @@ func _ready() -> void:
 
 	conductor.start()
 
+	# Join the room. Harmless if there's no conductor reachable — the Conductor
+	# just stays in solo mode and these signals never fire.
+	net = ConductorClient.new()
+	add_child(net)
+	net.synced.connect(_on_synced)
+	net.offset_updated.connect(func(o): conductor.set_offset(o))
+	net.party.connect(_on_party)
+
 func _make_label(pos: Vector2, size: int, align: int) -> Label:
 	var l := Label.new()
 	add_child(l)
@@ -85,6 +99,7 @@ func _make_label(pos: Vector2, size: int, align: int) -> Label:
 	return l
 
 func _process(delta: float) -> void:
+	_net_grace += delta
 	var ab := conductor.total_beats()
 
 	# Spawn notes far enough ahead that they enter at the top of the screen.
@@ -118,6 +133,13 @@ func _schedule_loops(up_to_loop: int) -> void:
 
 func _on_beat(_loop_index: int) -> void:
 	pulse = 1.0
+
+func _on_synced(epoch: float, bpm: float, loop: int, offset: float) -> void:
+	conductor.apply_server_sync(epoch, bpm, loop, offset)
+	is_synced = true
+
+func _on_party(n: int) -> void:
+	online = n
 
 func _unhandled_input(event: InputEvent) -> void:
 	var tapped := false
@@ -158,8 +180,9 @@ func _judge_tap() -> void:
 	combo += 1
 	best_combo = maxi(best_combo, combo)
 	pulse = 1.0
-	# PARTY: also send {"t":"hit", "quality": ...} to the conductor here, so the
-	# room-wide combo meter ticks for everyone.
+	# Feeds the room-wide energy meter (step 4); ignored by the conductor today.
+	if net:
+		net.send_hit()
 
 func _register_miss() -> void:
 	combo = 0
@@ -174,6 +197,16 @@ func _update_labels() -> void:
 	combo_label.text = ("combo %d" % combo) if combo > 0 else " "
 	judgment_label.text = judgment
 	judgment_label.modulate = ACCENT if judgment == "PERFECT" else Color.WHITE
+
+	if is_synced:
+		party_label.text = "🎉 %d here · everyone on the same beat" % maxi(online, 1)
+		party_label.modulate = ACCENT
+	elif _net_grace < 3.0:
+		party_label.text = "connecting to the party…"
+		party_label.modulate = DIM
+	else:
+		party_label.text = "solo (offline)"
+		party_label.modulate = DIM
 
 func _draw() -> void:
 	draw_rect(Rect2(0, 0, W, H), BG)

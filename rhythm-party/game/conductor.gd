@@ -28,6 +28,13 @@ var _running := false
 var _start_sec := 0.0
 var _last_whole_beat := -9999
 
+# Server-synced mode. Once the ConductorClient finishes its clock-sync
+# handshake, total_beats() switches from the local solo clock to global server
+# time, so every client lands on the same downbeat.
+var _synced := false
+var _epoch_ms := 0.0
+var _offset_ms := 0.0
+
 func start() -> void:
 	# Anchor "beat zero" LEAD_IN_BEATS into the future, so total_beats() counts
 	# up from a negative countdown. Later this anchor comes from the server.
@@ -38,8 +45,25 @@ func start() -> void:
 func seconds_per_beat() -> float:
 	return 60.0 / bpm
 
-## Absolute beats since "beat zero". Negative during the lead-in countdown.
+## Switch from solo timing to the room's shared beat. Called once when the
+## ConductorClient finishes its clock-sync handshake.
+func apply_server_sync(epoch: float, new_bpm: float, loop: int, offset: float) -> void:
+	_epoch_ms = epoch
+	bpm = new_bpm
+	beats_per_loop = loop
+	_offset_ms = offset
+	_synced = true
+
+## Refresh just the clock offset; later handshake samples correct for drift.
+func set_offset(offset_ms: float) -> void:
+	_offset_ms = offset_ms
+
+## Absolute beats since "beat zero". When synced, derived from global server
+## time; otherwise from the local solo clock (negative during the lead-in).
 func total_beats() -> float:
+	if _synced:
+		var server_now_ms := Time.get_unix_time_from_system() * 1000.0 + _offset_ms
+		return (server_now_ms - _epoch_ms) / 1000.0 / seconds_per_beat()
 	if not _running:
 		return 0.0
 	return (_now() - _start_sec) / seconds_per_beat()
@@ -49,7 +73,7 @@ func loop_beat() -> float:
 	return fposmod(total_beats(), float(beats_per_loop))
 
 func _process(_delta: float) -> void:
-	if not _running:
+	if not _running and not _synced:
 		return
 	var wb := int(floor(total_beats()))
 	if wb != _last_whole_beat:

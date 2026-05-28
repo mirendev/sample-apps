@@ -51,8 +51,8 @@ not netcode.
 
 1. **Offline client** — loop, tap, score locally. ✓ done
 2. **Web export, hosted static on Miren** — QR-joinable, no install. ✓ done, live at https://rhythm.miren.toys
-3. **WebSocket + clock sync** — two phones landing on the same downbeat. ← *you are here*
-4. **Ambient multiplayer** — live party count, room combo, shared visualizer.
+3. **WebSocket + clock sync** — every client on the same server-anchored beat, plus a live party count. ✓ done (handshake verified in prod: ~15ms RTT)
+4. **Ambient multiplayer** — room-wide energy/combo meter, shared visualizer (and managed Valkey for cross-instance stats). ← *you are here*
 5. **Calibration + juice** — tap-to-calibrate on join, polish the feel.
 
 In between 1 and 2 there's a **1.5: real audio**, anchoring the beat clock to an
@@ -121,11 +121,13 @@ rhythm-party/
     project.godot
     main.tscn        one node, script-attached; the tree is built in code
     main.gd          gameplay, scoring, drawing
-    conductor.gd     the beat clock — the one seam the network plugs into
-    export_presets.cfg  the headless "Web" export preset
+    conductor.gd     the beat clock — solo, or server-anchored once synced
+    conductor_client.gd  WebSocket: clock-sync handshake + live party count
+    export_presets.cfg   the headless "Web" export preset
     icon.svg
-  conductor/         Go server that hosts the export (WebSocket + Valkey land here in step 3)
-    main.go          embeds and serves static/; /health; optional COOP/COEP
+  conductor/         Go server: serves the export + /ws (clock sync, presence)
+    main.go          static embed; /health; /ws hub + clock-sync; opt-in COOP/COEP
+    go.mod, go.sum, vendor/   coder/websocket, vendored for hermetic builds
     Procfile         web: /bin/app
     .miren/app.toml  app name + include = ["static"]
     static/          Godot web export — .gitignored, force-included via app.toml
