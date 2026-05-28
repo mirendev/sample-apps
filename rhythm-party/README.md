@@ -52,8 +52,8 @@ not netcode.
 1. **Offline client** — loop, tap, score locally. ✓ done
 2. **Web export, hosted static on Miren** — QR-joinable, no install. ✓ done, live at https://rhythm.miren.toys
 3. **WebSocket + clock sync** — every client on the same server-anchored beat, plus a live party count. ✓ done (handshake verified in prod: ~15ms RTT)
-4. **Ambient multiplayer** — room-wide energy/combo meter, shared visualizer (and managed Valkey for cross-instance stats). ← *you are here*
-5. **Calibration + juice** — tap-to-calibrate on join, polish the feel.
+4. **Ambient multiplayer** — room energy meter, shared across instances via managed Valkey. ✓ done
+5. **Calibration + juice** — audio offset baked (26ms default); per-device tap-to-calibrate still open. ← *you are here*
 
 **1.5: real audio** ✓ done — a title card (which also satisfies the browser's
 "resume audio on a gesture" rule) starts "Brain Dance" by Kevin MacLeod, seeked
@@ -110,7 +110,16 @@ miren deploy -C toys -d conductor
 
 # 3. point a hostname at it (first time only)
 miren route set rhythm.miren.toys rhythm-party -C toys
+
+# 4. (optional) attach managed Valkey so the room is shared across instances
+miren addon create miren-valkey:small -a rhythm-party -C toys
 ```
+
+The Valkey addon injects `REDIS_URL`. With it, the conductor runs in
+*distributed mode*: hits fan out over a Valkey pub/sub channel so every
+instance's energy meter rises, and presence is a shared counter — one room no
+matter how many instances sit behind the route. Without it, the conductor falls
+back to local single-instance mode and the game still works.
 
 `conductor/static/` is a ~43MB build artifact, so it's `.gitignored`. But Miren
 honors `.gitignore` when bundling a deploy, so `.miren/app.toml` carries
@@ -138,9 +147,9 @@ rhythm-party/
     export_presets.cfg   the headless "Web" export preset
     assets/brain-dance.ogg   trimmed to a 440-beat loop (CC BY 4.0 — see Credits)
     icon.svg
-  conductor/         Go server: serves the export + /ws (clock sync, presence)
-    main.go          static embed; /health; /ws hub + clock-sync; opt-in COOP/COEP
-    go.mod, go.sum, vendor/   coder/websocket, vendored for hermetic builds
+  conductor/         Go server: serves the export + /ws (clock sync, energy, presence)
+    main.go          static embed; /health; /ws hub; Valkey distributed mode
+    go.mod, go.sum, vendor/   coder/websocket + go-redis, vendored for hermetic builds
     Procfile         web: /bin/app
     .miren/app.toml  app name + include = ["static"]
     static/          Godot web export — .gitignored, force-included via app.toml

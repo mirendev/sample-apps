@@ -27,6 +27,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/redis/go-redis/v9"
 )
 
 //go:embed all:static
@@ -49,6 +50,12 @@ const (
 	energyDecay  = 0.92 // multiplicative decay per tick
 )
 
+// Valkey keys/channels for sharing the room across conductor instances.
+const (
+	hitsChannel = "rhythm:hits"   // pub/sub fan-out of hits across instances
+	onlineKey   = "rhythm:online" // shared head count (INCR/DECR per connection)
+)
+
 func nowMs() int64 { return time.Now().UnixMilli() }
 
 func main() {
@@ -60,6 +67,7 @@ func main() {
 	}
 
 	h := newHub()
+	h.connectValkey()
 	go h.run()
 
 	mux := http.NewServeMux()
@@ -100,20 +108,54 @@ type hub struct {
 	mu      sync.Mutex
 	clients map[*client]struct{}
 	energy  float64
+	rdb     *redis.Client // nil => local single-instance mode
 }
 
 func newHub() *hub { return &hub{clients: map[*client]struct{}{}} }
+
+// connectValkey switches the hub into distributed mode if REDIS_URL points at a
+// reachable Valkey (the miren-valkey addon injects it). On any failure it stays
+// in local single-instance mode — the game still works, just not fleet-wide.
+func (h *hub) connectValkey() {
+	url := os.Getenv("REDIS_URL")
+	if url == "" {
+		log.Printf("valkey: REDIS_URL unset, local single-instance mode")
+		return
+	}
+	opt, err := redis.ParseURL(url)
+	if err != nil {
+		log.Printf("valkey: bad REDIS_URL (%v), local mode", err)
+		return
+	}
+	rdb := redis.NewClient(opt)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		log.Printf("valkey: ping failed (%v), local mode", err)
+		_ = rdb.Close()
+		return
+	}
+	h.rdb = rdb
+	go h.subscribeHits()
+	log.Printf("valkey: distributed mode (room shared across instances)")
+}
 
 func (h *hub) add(c *client) {
 	h.mu.Lock()
 	h.clients[c] = struct{}{}
 	h.mu.Unlock()
+	if h.rdb != nil {
+		h.rdb.Incr(context.Background(), onlineKey)
+	}
 }
 
 func (h *hub) remove(c *client) {
 	h.mu.Lock()
 	delete(h.clients, c)
 	h.mu.Unlock()
+	if h.rdb != nil {
+		h.rdb.Decr(context.Background(), onlineKey)
+	}
 }
 
 func (h *hub) addEnergy(d float64) {
@@ -122,10 +164,45 @@ func (h *hub) addEnergy(d float64) {
 	h.mu.Unlock()
 }
 
+// recordHit feeds the energy meter. With Valkey, publish so every instance's
+// meter rises (our local subscriber applies our own hit too). Without, bump
+// directly.
+func (h *hub) recordHit() {
+	if h.rdb != nil {
+		h.rdb.Publish(context.Background(), hitsChannel, "1")
+		return
+	}
+	h.addEnergy(hitBump)
+}
+
+// subscribeHits applies every instance's hits (including our own) to the local
+// energy meter, so all instances converge on the same room energy.
+func (h *hub) subscribeHits() {
+	sub := h.rdb.Subscribe(context.Background(), hitsChannel)
+	defer sub.Close()
+	for range sub.Channel() {
+		h.addEnergy(hitBump)
+	}
+}
+
+// onlineCount is the whole-room head count: shared across instances when Valkey
+// is attached, otherwise just this instance's own connections.
+func (h *hub) onlineCount() int {
+	if h.rdb != nil {
+		if n, err := h.rdb.Get(context.Background(), onlineKey).Int(); err == nil {
+			return n
+		}
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.clients)
+}
+
 // broadcastParty pushes the current head count and room energy to everyone.
 func (h *hub) broadcastParty() {
+	online := h.onlineCount()
 	h.mu.Lock()
-	msg := partyMsg{T: "party", Online: len(h.clients), Energy: h.energy}
+	msg := partyMsg{T: "party", Online: online, Energy: h.energy}
 	for c := range h.clients {
 		c.trySend(msg)
 	}
@@ -226,7 +303,7 @@ func (h *hub) serveWS(w http.ResponseWriter, r *http.Request) {
 		case "ping":
 			c.trySend(pongMsg{T: "pong", C: m.C, S: nowMs()})
 		case "hit":
-			h.addEnergy(hitBump)
+			h.recordHit()
 		}
 	}
 }
