@@ -155,6 +155,26 @@ rhythm-party/
     static/          Godot web export — .gitignored, force-included via app.toml
 ```
 
+## Next up
+
+Backlog for future sessions, roughly ordered.
+
+**Polish / feel**
+- Mute + volume control (people will want to silence it; a small AudioStreamPlayer toggle).
+- More juice: a burst/flash on Perfect, combo milestones, a beat-synced screen pulse, some note variety.
+- Strip the dev-only audio-offset readout and `[`/`]` keys from the booth build (or gate them behind a `?debug` query param).
+
+**Features**
+- Step 5: per-device tap-to-calibrate, if the single 26ms offset feels off across enough phones.
+- A QR sticker / landing pointing at https://rhythm.miren.toys.
+- Maybe: multiple charts or lanes, a name + simple leaderboard, song selection.
+
+**Known rough edges to remember**
+- Presence (`rhythm:online`) is INCR/DECR per connection; an instance crash leaks the count upward until reset. Fine for one booth instance, revisit if scaling.
+- One global 26ms audio offset is one-size; Bluetooth earbuds will be off. That's what step 5 solves.
+- No WebSocket reconnect: if the socket drops, the client silently falls back to solo until reload. A reconnect loop in `conductor_client.gd` would harden it for flaky venue wifi.
+- The 440-beat loop seam is beat-aligned but a hard audio cut; only audible once every ~3.5 min.
+
 ## Credits
 
 Music: "Brain Dance" by Kevin MacLeod (incompetech.com), licensed under
