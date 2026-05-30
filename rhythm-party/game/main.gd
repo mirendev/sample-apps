@@ -78,6 +78,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_BRACKETRIGHT:
 			conductor.audio_offset_ms += 10.0
 			return
+		if event.keycode == KEY_M:
+			hud.toggle_mute()
+			return
 	if not _is_tap(event):
 		return
 	if state == State.TITLE:

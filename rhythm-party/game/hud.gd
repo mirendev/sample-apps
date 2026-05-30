@@ -17,6 +17,8 @@ var _header: Label
 var _party: Label
 var _intro: Label
 var _start: Label
+var _sound: Label
+var _mute: MuteButton
 var _score: Label
 var _combo: Label
 var _judgment: Label
@@ -37,12 +39,13 @@ func _ready() -> void:
 		+ "at the same time.\n\nTap the ring on the beat. Bop with the room.")
 
 	_start = _label(Vector2(0, 770), 34, "tap to start", Look.ACCENT)
+	_sound = _label(Vector2(0, 824), 22, "sound on - turn your volume up", Look.DIM)
 
 	_score = _label(Vector2(0, 150), 34, "", Color.WHITE)
 	_combo = _label(Vector2(0, 196), 26, "", Look.ACCENT)
 	_judgment = _label(Vector2(0, HIT_Y - 210), 56, "", Color.WHITE)
 
-	_hint = _label(Vector2(0, H - 78), 20, "tap space / click / touch on the beat", Look.DIM)
+	_hint = _label(Vector2(0, H - 78), 20, "tap on the beat   (M to mute)", Look.DIM)
 	_credit = _label(Vector2(0, H - 40), 15,
 		"Music: \"Brain Dance\" by Kevin MacLeod (incompetech.com), CC BY 4.0", Look.DIM)
 	_offset = _label(Vector2(0, H - 108), 15, "", Look.DIM)
@@ -60,12 +63,19 @@ func _ready() -> void:
 	_energy_fill.size = Vector2(0, 8)
 	_energy_fill.color = Look.ACCENT
 
+	# Persistent sound toggle, top-right under the energy strip. Present in both
+	# title and play, so the room can mute (or confirm sound is on) at any time.
+	_mute = MuteButton.new()
+	add_child(_mute)
+	_mute.position = Vector2(W - MuteButton.SIZE - 16, 32)
+
 	set_title_mode(true)
 
 func set_title_mode(on: bool) -> void:
 	_titling = on
 	_intro.visible = on
 	_start.visible = on
+	_sound.visible = on
 	_score.visible = not on
 	_combo.visible = not on
 	_judgment.visible = not on
@@ -82,6 +92,9 @@ func set_party(is_synced: bool, online: int, connecting: bool) -> void:
 	else:
 		_party.text = "solo (offline)"
 		_party.modulate = Look.DIM
+
+func toggle_mute() -> void:
+	_mute.toggle()
 
 func set_offset_readout(ms: float) -> void:
 	_offset.text = "audio offset %d ms  ( [ / ] )" % int(round(ms))
