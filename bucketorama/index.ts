@@ -151,7 +151,7 @@ async function renderIndex(message = ""): Promise<Response> {
     list = `error: ${(err as Error).message}`;
   }
   return new Response(page(list, message), {
-    headers: { "content-type": "text/html" },
+    headers: { "content-type": "text/html; charset=utf-8" },
   });
 }
 

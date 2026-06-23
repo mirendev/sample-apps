@@ -144,6 +144,17 @@ Open the app and the identity panel now shows your real subject, mode
 `workload identity`, and the bucket's contents — fetched with credentials that
 were never stored anywhere.
 
+### Heads up: this app has no auth
+
+Bucketorama is a demo, not a hardened service. It has no authentication of its
+own, so anyone who can reach it can read and write your bucket. Don't expose it
+on a public route as-is.
+
+If you want to reach the UI from a browser, put it behind
+[Miren Route Protection](https://miren.dev/blog/route-protection) first — a
+shared password gate takes a couple of commands. Otherwise keep it internal:
+`miren sandbox exec` into the sandbox and `curl localhost:8080`.
+
 ## Configuration
 
 | Variable        | Required | Purpose                                          |
