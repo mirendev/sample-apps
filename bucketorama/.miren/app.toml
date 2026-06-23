@@ -1,0 +1,14 @@
+name = "bucketorama"
+
+[services.web]
+command = "bun run index.ts"
+port = 8080
+
+[services.web.concurrency]
+mode = "fixed"
+num_instances = 1
+
+# Set these for your AWS account before deploying:
+#   miren env set bucketorama BUCKET=your-bucket-name
+#   miren env set bucketorama AWS_REGION=us-east-1
+#   miren env set bucketorama AWS_ROLE_ARN=arn:aws:iam::123456789012:role/bucketorama
