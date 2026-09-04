@@ -1,5 +1,4 @@
 name = 'rust-chat'
-post_import = ''
 env = [
     { key = "TOKIO_CONSOLE", value = "1" },
     { key = "ROOM_TITLE", value = "crabby-chatty" },

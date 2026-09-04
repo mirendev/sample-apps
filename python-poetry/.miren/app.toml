@@ -1,4 +1,3 @@
 name = 'hw-python'
-post_import = ''
 env = []
 include = []

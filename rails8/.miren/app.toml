@@ -1,5 +1,4 @@
 name = "rails8"
-post_import = ""
 include = []
 
 [build]
