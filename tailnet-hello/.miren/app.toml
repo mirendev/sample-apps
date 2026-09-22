@@ -1,0 +1,25 @@
+name = "tailnet-hello"
+
+[build]
+dockerfile = "Dockerfile"
+
+# One instance: tailscale traffic doesn't pass through Miren's ingress, so
+# it can't wake an app that has scaled to zero.
+[services.web.concurrency]
+mode = "fixed"
+num_instances = 1
+
+# tailscaled's state: node identity and the ts.net HTTPS cert (see start.sh).
+[[services.web.disks]]
+name = "tailscale"
+provider = "local"
+mount_path = "/var/lib/tailscale"
+
+[[env]]
+key = "TS_AUTHKEY"
+backend = "cluster"
+ref = "tailnet-hello/ts-authkey"
+
+[[env]]
+key = "TS_HOSTNAME"
+value = "tailnet-hello"

@@ -10,3 +10,4 @@ This contains sample apps to use with Miren.
 * [Python using Pipenv](python-pipenv/)
 * [Python using poetry](python-poetry/)
 * [Ruby on Rails 8](rails8/)
+* [Per-app Tailscale, a proof of concept](tailnet-hello/)
