@@ -10,6 +10,8 @@ Visit it from a device on your tailnet and it greets you by name. It can also
 sit on the public internet at the same time, and it tells you which way you
 came in.
 
+![Two browser windows. Over the tailnet, the app greets Paul Hinze by name. Over tailnet-hello.miren.toys, it greets the internet, and both report the same tailnet address.](screenshot.png)
+
 > [!NOTE]
 > Miren doesn't support per-app Tailscale natively (yet). This works by going
 > *around* Miren: tailnet traffic reaches the sandbox directly and never
