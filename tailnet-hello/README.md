@@ -103,12 +103,16 @@ Give it a route and it's on the internet and your tailnet at once:
 miren route set tailnet-hello.example.com tailnet-hello
 ```
 
-The app tells the two paths apart by where the connection comes from, not by
-headers. `tailscale serve` connects from loopback, and Miren's ingress
-connects from the sandbox bridge. Anyone on the internet can send a
-`Tailscale-User-Login` header, and the public ingress passes it along, so an
-app that trusts those headers on every request can be fooled. `viaTailnet` in
-`main.go` is the check to copy.
+Once it has a route, the identity headers are only trustworthy on one of the
+two paths. `tailscale serve` drops any `Tailscale-User-*` headers the client
+sent and sets its own, so on the tailnet they're reliable. Miren's ingress
+passes them through untouched, so anyone on the internet can claim to be
+anyone.
+
+The app therefore tells the two paths apart by where the connection comes
+from, not by headers. `tailscale serve` connects from loopback, and Miren's
+ingress connects from the sandbox bridge. `viaTailnet` in `main.go` is the
+check to copy.
 
 ## What you give up
 
